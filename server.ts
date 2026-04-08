@@ -160,7 +160,74 @@ async function logAction(userId: number, action: string, targetTable: string, ta
 }
 
 // Seed Data Function
+const ALLOWED_BRANDS = ["Shakir", "Yelo Pizza", "BBT", "Pattie", "Chili", "Slice", "Just C", "Mishmash", "Table", "FM"];
+
 async function seedData() {
+  console.log("Starting aggressive brand cleanup and migration...");
+  
+  // Clean up old brands that are not in the allowed list or merge them if they are variations
+  const existingBrands = await db.all("SELECT id, name FROM brands");
+  for (const brand of existingBrands) {
+    const brandUpper = brand.name.toUpperCase();
+    const targetBrandName = ALLOWED_BRANDS.find(b => 
+      b.toUpperCase() === brandUpper || 
+      (b.toUpperCase() === 'YELO PIZZA' && ['YELO', 'YELLO PIZZA', 'YELLOW PIZZA'].includes(brandUpper)) || 
+      (b.toUpperCase() === 'FM' && brandUpper === 'FOREVERMORE')
+    );
+
+    if (!targetBrandName) {
+      console.log(`Removing unauthorized brand: ${brand.name}`);
+      // Re-assign users to a default brand or null before deleting
+      await db.query("UPDATE users SET brand_id = NULL WHERE brand_id = $1", [brand.id]);
+      await db.query("DELETE FROM user_brands WHERE brand_id = $1", [brand.id]);
+      await db.query("DELETE FROM branches WHERE brand_id = $1", [brand.id]);
+      await db.query("DELETE FROM products WHERE brand_id = $1", [brand.id]);
+      await db.query("DELETE FROM brands WHERE id = $1", [brand.id]);
+    } else if (brand.name !== targetBrandName) {
+      // Merge variation into target brand
+      console.log(`Merging brand variation: ${brand.name} -> ${targetBrandName}`);
+      
+      // Ensure target brand exists
+      await db.query("INSERT INTO brands (name) VALUES ($1) ON CONFLICT (name) DO NOTHING", [targetBrandName]);
+      const targetBrand = await db.get("SELECT id FROM brands WHERE name = $1", [targetBrandName]);
+      
+      if (targetBrand && targetBrand.id !== brand.id) {
+        // Update all related tables
+        const tablesToUpdate = [
+          "users", "branches", "products", "late_order_requests", 
+          "user_brands", "hidden_items", "hide_history"
+        ];
+        
+        for (const table of tablesToUpdate) {
+          try {
+            if (table === "user_brands") {
+              // Handle unique constraint for user_brands
+              await db.query(`
+                DELETE FROM user_brands 
+                WHERE brand_id = $1 
+                AND user_id IN (SELECT user_id FROM user_brands WHERE brand_id = $2)
+              `, [targetBrand.id, brand.id]);
+            }
+            await db.query(`UPDATE ${table} SET brand_id = $1 WHERE brand_id = $2`, [targetBrand.id, brand.id]);
+          } catch (e) {
+            console.error(`Error updating table ${table} during brand merge:`, e);
+          }
+        }
+        
+        // Delete the old variation
+        await db.query("DELETE FROM brands WHERE id = $1", [brand.id]);
+      } else {
+        // Just rename if it's the same ID but different casing
+        await db.query("UPDATE brands SET name = $1 WHERE id = $2", [targetBrandName, brand.id]);
+      }
+    }
+  }
+
+  // Ensure Brands exist
+  for (const brandName of ALLOWED_BRANDS) {
+    await db.query("INSERT INTO brands (name) VALUES ($1) ON CONFLICT (name) DO NOTHING", [brandName]);
+  }
+
   const roles = [
     "Technical Back Office",
     "Manager",
@@ -178,24 +245,53 @@ async function seedData() {
 
   // Create default admin if no users exist
   const userCount = await db.get("SELECT COUNT(*) as count FROM users");
-  let adminUserId = 0;
   if (Number(userCount.count) === 0) {
     const adminRole = await db.get("SELECT id FROM roles WHERE name = $1", ["Technical Back Office"]);
     const passwordHash = await bcrypt.hash("admin123", 10);
-    const result = await db.query(
-      "INSERT INTO users (username, password_hash, role_id) VALUES ($1, $2, $3) RETURNING id",
-      ["admin", passwordHash, adminRole.id]
-    );
-    adminUserId = result.rows[0].id;
-    console.log("Default admin user created: admin / admin123");
-  } else {
-    const admin = await db.get("SELECT id FROM users WHERE username = $1", ["admin"]);
-    adminUserId = admin?.id || 0;
+    if (adminRole) {
+      await db.query(
+        "INSERT INTO users (username, password_hash, role_id) VALUES ($1, $2, $3)",
+        ["admin", passwordHash, adminRole.id]
+      );
+      console.log("Default admin user created: admin / admin123");
+    } else {
+      console.error("CRITICAL: Technical Back Office role not found. Cannot create admin user.");
+    }
   }
 
-  // Ensure Brand BBT exists
-  await db.query("INSERT INTO brands (name) VALUES ($1) ON CONFLICT (name) DO NOTHING", ["BBT"]);
-  const bbtBrand = await db.get("SELECT id FROM brands WHERE name = $1", ["BBT"]);
+  const bbtBrand = await db.get("SELECT id FROM brands WHERE UPPER(name) = $1", ["BBT"]);
+  const chiliBrand = await db.get("SELECT id FROM brands WHERE UPPER(name) = $1", ["CHILI"]);
+  const shakirBrand = await db.get("SELECT id FROM brands WHERE UPPER(name) = $1", ["SHAKIR"]);
+  const yeloBrand = await db.get("SELECT id FROM brands WHERE UPPER(name) = $1", ["YELO PIZZA"]);
+  const pattieBrand = await db.get("SELECT id FROM brands WHERE UPPER(name) = $1", ["PATTIE"]);
+  const sliceBrand = await db.get("SELECT id FROM brands WHERE UPPER(name) = $1", ["SLICE"]);
+  const justcBrand = await db.get("SELECT id FROM brands WHERE UPPER(name) = $1", ["JUST C"]);
+  const mishBrand = await db.get("SELECT id FROM brands WHERE UPPER(name) = $1", ["MISHMASH"]);
+  const tableBrand = await db.get("SELECT id FROM brands WHERE UPPER(name) = $1", ["TABLE"]);
+  const fmBrand = await db.get("SELECT id FROM brands WHERE UPPER(name) = $1", ["FM"]);
+
+  // Ensure Branches exist
+  if (bbtBrand) {
+    const bbtBranches = ["Qurain", "Kaifan", "Jabriya", "Salmiya", "Fintas"];
+    for (const branchName of bbtBranches) {
+      await db.query("INSERT INTO branches (brand_id, name) VALUES ($1, $2) ON CONFLICT DO NOTHING", [bbtBrand.id, branchName]);
+    }
+  }
+
+  if (chiliBrand) {
+    const chiliBranches = ["Salmiya", "Avenues", "360 Mall", "Gate Mall"];
+    for (const branchName of chiliBranches) {
+      await db.query("INSERT INTO branches (brand_id, name) VALUES ($1, $2) ON CONFLICT DO NOTHING", [chiliBrand.id, branchName]);
+    }
+  }
+
+  const otherBrands = [shakirBrand, yeloBrand, pattieBrand, sliceBrand, justcBrand, mishBrand, tableBrand, fmBrand];
+  for (const brand of otherBrands) {
+    if (brand) {
+      await db.query("INSERT INTO branches (brand_id, name) VALUES ($1, $2) ON CONFLICT DO NOTHING", [brand.id, "Main Branch"]);
+      await db.query("INSERT INTO branches (brand_id, name) VALUES ($1, $2) ON CONFLICT DO NOTHING", [brand.id, "Airport"]);
+    }
+  }
 
   // Ensure essential dynamic fields exist
   const fields = [
@@ -208,48 +304,6 @@ async function seedData() {
       "INSERT INTO dynamic_fields (name_en, name_ar, type, field_order) VALUES ($1, $2, $3, $4) ON CONFLICT (name_en) DO NOTHING",
       [f.name_en, f.name_ar, f.type, f.order]
     );
-  }
-
-  const nameField = await db.get("SELECT id FROM dynamic_fields WHERE name_en = $1", ["Product Name (EN)"]);
-
-  // Check if products already exist for BBT to avoid duplicates
-  const bbtProductCount = await db.get("SELECT COUNT(*) FROM products WHERE brand_id = $1", [bbtBrand.id]);
-  
-  if (Number(bbtProductCount.count) === 0) {
-    const productsList = [
-      "7up", "Aquafina Water", "3.5KD Deal", "BBQ Sauce", "BBT Mayo", "BBT Ranch Sauce", "BBT Sauce", 
-      "Buttercup", "Cheese Dip", "CLASSIC ROLLS BEEF", "CLASSIC ROLLS BEEF Meal", "Cheeseburger Duo Combo", 
-      "Chicken Fillaaa", "Chicken Fillaaa Meal", "Chicken Nugget Meal", "Chicken Nuggets", "Chili Lime", 
-      "Chilli Lime Old Skool", "Chilli Lime Supreme", "Chilli Lime Old Skool Meal", "Chilli Lime Supreme Meal", 
-      "Chilli Lime Tenders Fillaaa (New)", "Classic Old Skool", "Classic Supreme", "Classic Old Skool Meal", 
-      "Classic Supreme Meal", "Coleslaw", "Crispy Fries", "Curly Fries", "Extra 1pc Tenders", "Extra 1pc Toast", 
-      "Extra Cheese", "Extra Coleslaw", "Extra Sauce", "Fillaaa Sauce", "FILAAA PARTY", "French Fries", "Fries", 
-      "Honey Mustard", "Kinza Cola", "Kinza Diet Cola", "Kinza Diet Lemon", "Kinza Lemon", "Kinza Orange", 
-      "Lipton Ice Tea - Lemon Zero", "Lipton Ice Tea - Peach Zero", "Lipton Ice Tea - Red Fruits Zero", 
-      "Lipton Ice Tea - Tropical Zero", "Little Cheeseburger", "Little Chicken Burger", "Little Chicken Burger Duo Combo", 
-      "Little Wrap Fillaaa Meal", "Little Wrap Fillaaa Duo Combo", "Little Wrap Fillaaaa", "Messy Fries", "Miranda", 
-      "Mirinda", "Mountain Dew", "Nesqiuk", "Nuggets", "Nuggets Duo Combo", "Oreo Madness", "Peanut Butter", "Pepsi", 
-      "Pepsi Zero", "Quarter Pounder Burger", "Quarter Pounder Meal", "Schnitzel x Burger", "Schnitzel X Meal", "Salt", 
-      "SMOKEY ROLLS BEEF", "SMOKEY ROLLS BEEF Meal", "Shani", "Southwest Burger", "Southwest Meal", 
-      "Salt n Vinegar Tenders Fillaaa", "\"Not So Ranch\" Sauce", "Strawberry", "Sweet Chili", "Suuuper Beef", 
-      "Suuuper Beef Combo", "Suuuper Chicken", "Suuuper Chicken Combo", "Tang", "Tenders Fillaaa", "Toast", 
-      "Triple X", "Triple X Box", "TRIPLE X Meal", "Water", "Westcoast Burger", "Westcoast Meal", "Kidkit Little chicken", 
-      "Kidkit Little Cheese Burger", "Kidkit Chicken Nuggets", "XL Fillaaa Sauce"
-    ];
-
-    console.log(`Seeding ${productsList.length} products for BBT...`);
-    for (const productName of productsList) {
-      const pResult = await db.query(
-        "INSERT INTO products (brand_id, created_by, status) VALUES ($1, $2, $3) RETURNING id",
-        [bbtBrand.id, adminUserId, 'Completed']
-      );
-      const productId = pResult.rows[0].id;
-      await db.query(
-        "INSERT INTO product_field_values (product_id, field_id, value) VALUES ($1, $2, $3)",
-        [productId, nameField.id, productName]
-      );
-    }
-    console.log("BBT Products seeded successfully.");
   }
 }
 
@@ -278,7 +332,59 @@ async function initDb() {
       name TEXT NOT NULL,
       FOREIGN KEY (brand_id) REFERENCES brands(id) ON DELETE CASCADE
     );
+  `);
 
+  // Cleanup duplicate branches and add unique constraint
+  try {
+    const duplicates = await db.all(`
+      SELECT brand_id, name, MIN(id) as keep_id, ARRAY_AGG(id) as all_ids
+      FROM branches
+      GROUP BY brand_id, name
+      HAVING COUNT(*) > 1
+    `);
+
+    for (const dup of duplicates) {
+      const keepId = dup.keep_id;
+      const deleteIds = dup.all_ids.filter((id: number) => id !== keepId);
+      
+      if (deleteIds.length > 0) {
+        console.log(`Merging duplicate branches for brand ${dup.brand_id}, name ${dup.name}: keeping ${keepId}, deleting ${deleteIds.join(', ')}`);
+        
+        const tables = [
+          { name: 'users', col: 'branch_id' },
+          { name: 'hidden_items', col: 'branch_id' },
+          { name: 'hide_history', col: 'branch_id' },
+          { name: 'late_order_requests', col: 'branch_id' },
+          { name: 'user_branches', col: 'branch_id' }
+        ];
+
+        for (const table of tables) {
+          try {
+            if (table.name === 'user_branches') {
+              for (const delId of deleteIds) {
+                await db.query(`
+                  DELETE FROM user_branches 
+                  WHERE branch_id = $1 
+                  AND user_id IN (SELECT user_id FROM user_branches WHERE branch_id = $2)
+                `, [keepId, delId]);
+              }
+            }
+            await db.query(`UPDATE ${table.name} SET ${table.col} = $1 WHERE ${table.col} = ANY($2)`, [keepId, deleteIds]);
+          } catch (e) {
+            console.error(`Error updating table ${table.name} during branch merge:`, e);
+          }
+        }
+        await db.query(`DELETE FROM branches WHERE id = ANY($1)`, [deleteIds]);
+      }
+    }
+
+    await db.exec("ALTER TABLE branches ADD CONSTRAINT branches_brand_id_name_unique UNIQUE (brand_id, name)");
+    console.log("Added unique constraint to branches table");
+  } catch (e) {
+    // Constraint might already exist
+  }
+
+  await db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
       username TEXT UNIQUE NOT NULL,
@@ -699,98 +805,9 @@ try {
     console.log("Admin user role verified/updated to Manager");
   }
 
-  // Migration: Merge 'bbt' and 'BBT' brands
-  try {
-    const bbtBrands = await db.all("SELECT id, name FROM brands WHERE LOWER(name) = $1", ['bbt']) as { id: number, name: string }[];
-    if (bbtBrands.length > 1) {
-      console.log(`Found ${bbtBrands.length} BBT brands. Merging...`);
-      
-      // Find the one that is already uppercase or just take the first one
-      let targetBrand = bbtBrands.find(b => b.name === 'BBT');
-      if (!targetBrand) targetBrand = bbtBrands[0];
-      
-      const otherBrandIds = bbtBrands.filter(b => b.id !== targetBrand!.id).map(b => b.id);
-      
-      for (const oldId of otherBrandIds) {
-        // Update products
-        await db.query("UPDATE products SET brand_id = $1 WHERE brand_id = $2", [targetBrand.id, oldId]);
-        // Update branches
-        await db.query("UPDATE branches SET brand_id = $1 WHERE brand_id = $2", [targetBrand.id, oldId]);
-        // Update hidden_items
-        await db.query("UPDATE hidden_items SET brand_id = $1 WHERE brand_id = $2", [targetBrand.id, oldId]);
-        
-        // Update late_order_requests (Call Center Cases)
-        try {
-          await db.query("UPDATE late_order_requests SET brand_id = $1 WHERE brand_id = $2", [targetBrand.id, oldId]);
-        } catch (e) {}
-
-        // Update pending_requests
-        try {
-          await db.query("UPDATE pending_requests SET brand_id = $1 WHERE brand_id = $2", [targetBrand.id, oldId]);
-        } catch (e) {}
-
-        // Update hide_history
-        try {
-          await db.query("UPDATE hide_history SET brand_id = $1 WHERE brand_id = $2", [targetBrand.id, oldId]);
-        } catch (e) {}
-
-        // Update user_brands
-        // First delete duplicates to avoid unique constraint violations if any
-        await db.query(`
-          DELETE FROM user_brands 
-          WHERE brand_id = $1 
-          AND user_id IN (SELECT user_id FROM user_brands WHERE brand_id = $2)
-        `, [targetBrand.id, oldId]);
-        await db.query("UPDATE user_brands SET brand_id = $1 WHERE brand_id = $2", [targetBrand.id, oldId]);
-        
-        // Delete the old brand
-        await db.query("DELETE FROM brands WHERE id = $1", [oldId]);
-      }
-      
-      // Ensure the target brand is named 'BBT'
-      await db.query("UPDATE brands SET name = $1 WHERE id = $2", ['BBT', targetBrand.id]);
-      console.log(`Successfully merged BBT brands into ID ${targetBrand.id}`);
-    } else if (bbtBrands.length === 1 && bbtBrands[0].name !== 'BBT') {
-      // Just rename if there's only one but it's lowercase
-      await db.query("UPDATE brands SET name = $1 WHERE id = $2", ['BBT', bbtBrands[0].id]);
-      console.log(`Renamed brand ${bbtBrands[0].name} to BBT`);
-    }
-  } catch (e) {
-    console.error("Error merging BBT brands:", e);
-  }
-
-  // Seed Brands if empty
-  const brandCountResult = await db.get("SELECT COUNT(*) as count FROM brands") as { count: string | number };
-  const brandCount = parseInt(brandCountResult.count.toString());
-  const brands = ["shakir", "bbt", "Slice", "pattie", "Just c", "chili", "Mishmash", "Table", "Yellow Pizza", "FM"];
-
-  if (brandCount === 0) {
-    for (const brand of brands) {
-      await db.query("INSERT INTO brands (name) VALUES ($1)", [brand]);
-    }
-  } else {
-    // Migration: Rename yelo to Yellow Pizza if it exists
-    await db.query("UPDATE brands SET name = 'Yellow Pizza' WHERE name = 'yelo'");
-    await db.query("UPDATE brands SET name = 'Yellow Pizza' WHERE name = 'Yello Pizza'");
-    await db.query("UPDATE brands SET name = 'Yellow Pizza' WHERE name = 'Yelo Pizza'");
-    // Migration: Rename Forevermore to FM
-    await db.query("UPDATE brands SET name = 'FM' WHERE name = 'Forevermore'");
-  }
-
-  const yellowBrand = await db.get("SELECT id FROM brands WHERE name = 'Yellow Pizza'") as { id: number };
-  if (yellowBrand) {
-    const yellowProductCountResult = await db.get("SELECT COUNT(*) as count FROM products WHERE brand_id = $1", [yellowBrand.id]) as { count: string | number };
-    const yellowProductCount = parseInt(yellowProductCountResult.count.toString());
-    if (yellowProductCount === 0) {
-      const managerUser = await db.get("SELECT id FROM users WHERE username = 'admin'") as { id: number };
-      if (managerUser) {
-        const productResult = await db.query("INSERT INTO products (brand_id, created_by) VALUES ($1, $2) RETURNING id", [yellowBrand.id, managerUser.id]);
-        const productId = productResult.rows[0].id;
-        await db.query("INSERT INTO product_field_values (product_id, field_id, value) VALUES ($1, $2, $3)", [productId, 2, "Sample Yellow Pizza"]);
-        console.log("Seeded sample product for Yellow Pizza");
-      }
-    }
-  }
+  // Migration: Merge 'bbt' and 'BBT' brands - REMOVED redundant logic as it's now handled in seedData()
+  
+  // Seed Brands if empty - REMOVED redundant logic as it's now handled in seedData()
 
   // Seed Marketing User
   if (marketingTeamRole) {
@@ -802,7 +819,7 @@ try {
       const userId = result.rows[0].id;
       
       // Assign some brands to marketing team by default
-      const brandsToAssign = ["Yellow Pizza", "Mishmash", "Table"];
+      const brandsToAssign = ["YELO PIZZA", "MISHMASH", "TABLE"];
       for (const brandName of brandsToAssign) {
         const brand = await db.get("SELECT id FROM brands WHERE name = $1", [brandName]) as { id: number };
         if (brand) {
@@ -815,15 +832,15 @@ try {
 
   // Seed Branches if empty
   const branchesMap: Record<string, string[]> = {
-    "shakir": ["Rai", "Qurain", "Salmiya", "City", "Jahra", "Ardiya", "Egaila", "Hawally", "Sabah Al Ahmed"],
-    "bbt": ["Shamiya", "Hilltop", "West Mishref", "Yard (Vibes)", "Salmiya", "Adriya", "Jahra", "Adailiya", "Shuhada", "Mangaf"],
-    "Slice": ["Mishref", "City", "Yard Mall", "Adailiya", "Jabriya", "Ardiya", "Jahra"],
-    "pattie": ["Adailiya", "Mishref", "Ardiya", "Jahra", "Salmiya", "Yard", "Hawally"],
-    "Just c": ["Qortuba", "Yard"],
-    "chili": ["Qortuba", "Yard", "Hawally"],
-    "Mishmash": ["Ardiya", "Kaifan", "Mahboula", "Jabriya", "S-Salem", "S-Abdallah", "Salmiya", "Khaitan", "Mangaf", "W-Abdullah", "Salwa", "Qadsiya", "Qurain", "Khairan"],
-    "Table": ["Al-Rai", "Adriya", "Kuwait City", "Salmiya", "Hawally", "Jahra", "Egaila", "Aswaq Al-Qurain", "Sabah Al Ahmed"],
-    "Yellow Pizza": [
+    "SHAKIR": ["Rai", "Qurain", "Salmiya", "City", "Jahra", "Ardiya", "Egaila", "Hawally", "Sabah Al Ahmed"],
+    "BBT": ["Shamiya", "Hilltop", "West Mishref", "Yard (Vibes)", "Salmiya", "Adriya", "Jahra", "Adailiya", "Shuhada", "Mangaf"],
+    "SLICE": ["Mishref", "City", "Yard Mall", "Adailiya", "Jabriya", "Ardiya", "Jahra"],
+    "PATTIE": ["Adailiya", "Mishref", "Ardiya", "Jahra", "Salmiya", "Yard", "Hawally"],
+    "JUST C": ["Qortuba", "Yard"],
+    "CHILI": ["Qortuba", "Yard", "Hawally"],
+    "MISHMASH": ["Ardiya", "Kaifan", "Mahboula", "Jabriya", "S-Salem", "S-Abdallah", "Salmiya", "Khaitan", "Mangaf", "W-Abdullah", "Salwa", "Qadsiya", "Qurain", "Khairan"],
+    "TABLE": ["Al-Rai", "Adriya", "Kuwait City", "Salmiya", "Hawally", "Jahra", "Egaila", "Aswaq Al-Qurain", "Sabah Al Ahmed"],
+    "YELO PIZZA": [
       "Adailiya", "Khairan", "Jaber Al-Ahmad", "Sabah Al-Salem", "Vibes", "Qortuba", 
       "Dahiya Abdullah", "Fahaheel", "Jleeb Al-Shuyo", "Egaila", "Salmiya", "Jabriya", 
       "Ishbiliya (New)", "Sabah Al Ahmad", "Ardiya", "Midan Hawally", "Yard Mall", 
@@ -833,7 +850,7 @@ try {
   };
 
   for (const [brandName, branches] of Object.entries(branchesMap)) {
-    const brand = await db.get("SELECT id FROM brands WHERE name = $1", [brandName]) as { id: number };
+    const brand = await db.get("SELECT id FROM brands WHERE UPPER(name) = $1", [brandName.toUpperCase()]) as { id: number };
     if (brand) {
       for (const branchName of branches) {
         const exists = await db.get("SELECT id FROM branches WHERE brand_id = $1 AND name = $2", [brand.id, branchName]);
@@ -921,7 +938,7 @@ const getPrice = () => (Math.random() * 4 + 1.5).toFixed(3);
 
 // Seed Forevermore products for Hide Item demo
 const productSeedingData: Record<string, string[]> = {
-  "shakir": [
+  "SHAKIR": [
     "1 Beef Arayes Sandwich", "1 Beef Kaizer Shawarma", "1 Beef Kebab Sandwich", "1 Beef Kebab Wrap", "1 Bun", "3.5KD Deal",
     "1 Chicken Arayes Sandwich", "1 Chicken Kaizer Shawarma", "1 Lebanese Chicken Shawarma", "1 Lebanese Meat Shawarma",
     "1 Mixed Grill Platter (4 People)", "1 Regular Beef Shawarma", "1 Regular Chicken Shawarma", "1 Regular Meat Shawarma",
@@ -952,7 +969,7 @@ const productSeedingData: Record<string, string[]> = {
     "Tahina Sauce", "Tawouq Combo", "Tawouq & Arayes Combo", "Vimto", "Pepsi 1.25L", "Diet Pepsi 1.25L", "Miranda 1.25L",
     "7UP 1.25L", "7UP Diet 1.25L", "8 shawerma combo", "12pc Broasted Box", "12pc Family Meal"
   ],
-  "Yellow Pizza": [
+  "YELO PIZZA": [
     "2 pcs Pepperoni Garlic Bread", "2 pcs Pesto Garlic Bread", "2pcs Garlic Bread", "3 Pc Cheesy Garlic Bread",
     "3 Pc Pepporoni Garlic Bread", "3 Pc Pesto Garlic Bread", "3x3x3 - Good for 3", "4 for 4", "3.5KD Deal",
     "4 pcs BBQ Wings", "4 pcs Buffalo Wings", "5 for 5 ( NY Pizza )", "5 for 5 ( Square Pizza)", "7-Up Zero Sugar", "7-Up",
@@ -992,11 +1009,10 @@ const productSeedingData: Record<string, string[]> = {
     "Thin Crust Spicy Crispy Chicken", "Thin Crust Tornado Crispy Chicken", "Thin Crust Veggie", "Tomato", "Tornado Crispy Chicken",
     "Truffle Ranch", "Veggie Pizza (Thin - Pan - NY)", "Veggie", "Yelo Pepperoni Pizza (NY)", "Yelo Pepperoni"
   ],
-  "chili": [
-    "Qortuba Burger", "Yard Slider", "Hawally Special", "Chili Fries", "Spicy Wings", "Classic Chili", "Cheese Chili",
-    "Jalapeno Poppers", "Onion Rings", "Soft Drink", "Water"
+  "CHILI": [
+    "12 Taco DIY Box", "Amigo Fries", "aquafina water", "Build Your Burrito", "Build Your Burrito Bowl", "Build Your Quesadilla", "Build Your Set Of 3 Tacos", "Build Your Taco", "Caramello", "Cheese Broccoli Soup", "Chicken Enchilada Soup", "Chips & Salsa", "Lipton Iced Tea- Lemon Zero", "Lipton Iced Tea- Peach Zero", "Lipton Iced Tea- Red Fruits Zero", "Lipton Iced Tea -Tropical Zero", "Low Carb", "Nachos", "Slim Churros", "Traditional Burrito", "Traditional Burrito Bowl", "Traditional Chicken Taco", "Traditional Quesadilla", "Traditional Shrimp Taco", "Traditional Steak Taco", "Vegan", "Vodavoda Water", "Build Your Burrito Bowl combo", "Shani", "Mirinda", "7up", "Pepsi Diet", "Pepsi"
   ],
-  "bbt": [
+  "BBT": [
     "7up", "Aquafina Water", "3.5KD Deal", "BBQ Sauce", "BBT Mayo", "BBT Ranch Sauce", "BBT Sauce", "Buttercup", "Cheese Dip",
     "CLASSIC ROLLS BEEF", "CLASSIC ROLLS BEEF Meal", "Cheeseburger Duo Combo", "Chicken Fillaaa", "Chicken Fillaaa Meal",
     "Chicken Nugget Meal", "Chicken Nuggets", "Chili Lime", "Chilli Lime Old Skool", "Chilli Lime Supreme", "Chilli Lime Old Skool Meal",
@@ -1013,7 +1029,7 @@ const productSeedingData: Record<string, string[]> = {
     "Tang", "Tenders Fillaaa", "Toast", "Triple X", "Triple X Box", "TRIPLE X Meal", "Water", "Westcoast Burger", "Westcoast Meal",
     "Kidkit Little chicken", "Kidkit Little Cheese Burger", "Kidkit Chicken Nuggets", "XL Fillaaa Sauce"
   ],
-  "Slice": [
+  "SLICE": [
     "2 7up", "2 7up Zero Sugar", "2 Aquafina Water", "2 Kinza Citrus", "2 Kinza Cola", "2 Kinza Diet Cola", "2 Kinza Diet Lemon",
     "2 Kinza Lemon", "2 Kinza Orange", "2 Mirinda", "2 Pepsi", "2 Pepsi Diet", "2 Shani", "4 7up", "4 7up Zero Sugar",
     "4 Aquafina Water", "4 Fries", "4 Kinza Citrus", "4 Kinza Cola", "4 Kinza Diet Cola", "4 Kinza Diet Lemon", "4 Kinza Lemon",
@@ -1033,7 +1049,7 @@ const productSeedingData: Record<string, string[]> = {
     "Unseasoned Fries", "Vodavoda Water", "White Ranch", "Without Crispy Onion", "Without Seasoning", "Without Spicy Ranch",
     "Without White Ranch", "Yoghurt Sauce"
   ],
-  "pattie": [
+  "PATTIE": [
     "(5Pcs) 4pcs Happy Nuggets Pattie", "(5Pcs) Aquafina Water", "(5Pcs) Capri Sun Apple", "(5Pcs) Capri Sun Orange",
     "(5Pcs) Classic Pattie", "(5Pcs) Crispy Chicken Pattie", "(5Pcs) Mirinda", "(5Pcs) Pattie Pattie", "(5Pcs) Pepsi",
     "(5Pcs) Pepsi Zero", "10 Pcs Nuggets", "12 Slider Combo", "12 Sliders", "2 Fries", "3.5KD Deal", "2 Pcs Of Beef Crunch",
@@ -1058,7 +1074,7 @@ const productSeedingData: Record<string, string[]> = {
     "Cheesesteak Pattie Slider PLUS+", "Classic Pattie Slider PLUS+", "Sweet Bacon Slider PLUS+", "Truffle Mushroom Pattie Slider PLUS+",
     "Pattie Pattie slider PLUS+"
   ],
-  "Just c": [
+  "JUST C": [
     "Avocado", "Bacon", "BBQ Box", "BBQ Burger", "BBQ Sauce", "BBQ Slider", "Beef patty ( 100 gm )", "Beef patty ( 140 gm )",
     "Big C Burger", "C - Fries", "C- Sauce", "Cheddar Cheese", "Classic Burger", "Classic Chicken Burger", "Classic Chicken Slider",
     "Classic Meal Combo", "Classic Slider", "Crispy Cheese", "DOUBLE DECKER SESAME BUN", "Epsa Iced Tea - Lemon", "Epsa Iced Tea - Peach",
@@ -1069,7 +1085,7 @@ const productSeedingData: Record<string, string[]> = {
     "Spical Chicken ( Moderately Spicy )", "Truffle Aioli Sauce", "Truffle Burger", "Truffle Slider", "Vodavoda Water", "Ziggy Fries",
     "Ziggy Fries With Cheese"
   ],
-  "Mishmash": [
+  "MISHMASH": [
     "Beef Philly Steak Samoon", "3.5KD Deal", "Tenders 5pc Combo", "Double Puri", "Chicken Bites Wrap", "Chicken Caesar wrap",
     "Musahab wrap", "Chicken Philly Steak Samoon", "Kabab Samoon", "Mushroom Steak Samoon", "Shabah Samoon", "Tawook Samoon",
     "Chicken Tenders", "Telyani Samoon", "BBQ Burger", "Cheeseburger", "Creamy Mushroom Burger", "Cheesy Puri", "Classic Puri",
@@ -1098,7 +1114,7 @@ const productSeedingData: Record<string, string[]> = {
     "Beef Kabab BBQ Plate", "Meat Arayis BBQ Plate", "BBQ Arayis with Cheese", "Vegetables Plate BBQ", "Char-Grills BBQ Box",
     "Beef Burger BBQ Box", "Chicken Burger BBQ Box", "Tenderloin Steak BBQ Box", "Chicken Steak BBQ Box", "Chicken Bites Wrap"
   ],
-  "Table": [
+  "TABLE": [
     "Eggplant Fattah", "Grilled Wings", "Roasted Potato Fingers", "Tabel™ Batata Harra", "Tabel™ Grape Leaves", "Hummus", "3.5KD Deal",
     "Tabel™ Hummus", "Kabab Coconut Curry Bowl", "Tawook Coconut Curry Bowl", "Tawook Bowl combo", "Deboned Chicken Family Box",
     "Beef Hummus", "Farm Salad", "Chef Salad", "Creamy Tawook Hamsa", "Halloumi Tomato Hamsa", "Tikka Mushroom Hamsa",
@@ -1174,79 +1190,83 @@ const productSeedingData: Record<string, string[]> = {
     if (field) fieldIdMap[name] = field.id;
   }
 
+  // Get admin user ID for product seeding
+  const admin = await db.get("SELECT id FROM users WHERE username = $1", ["admin"]);
+  const adminUserId = admin?.id || 1;
+
   for (const [brandName, items] of Object.entries(productSeedingData)) {
-    const brand = await db.get("SELECT id FROM brands WHERE name = $1", [brandName]) as { id: number };
+    const brand = await db.get("SELECT id FROM brands WHERE UPPER(name) = $1", [brandName.toUpperCase()]) as { id: number };
     if (brand) {
-      for (const itemName of items) {
-        const productNameFieldId = fieldIdMap["Product Name (EN)"];
-        if (!productNameFieldId) continue;
-
-        const exists = await db.get(`
-          SELECT p.id 
-          FROM products p 
-          JOIN product_field_values fv ON p.id = fv.product_id 
-          WHERE p.brand_id = $1 AND fv.field_id = $2 AND fv.value = $3
-        `, [brand.id, productNameFieldId, itemName]) as { id: number } | undefined;
-        
-        let productId: number;
-        
-        if (!exists) {
-          const result = await db.query("INSERT INTO products (brand_id, created_by) VALUES ($1, $2) RETURNING id", [brand.id, 1]); // Admin user
-          productId = result.rows[0].id;
-        } else {
-          productId = exists.id;
+      // Special case for SHAKIR and FM: if they have duplicates or incorrect counts, clear them to re-seed properly
+      if (brandName.toUpperCase() === "SHAKIR" || brandName.toUpperCase() === "FM") {
+        const countResult = await db.get("SELECT COUNT(*) as count FROM products WHERE brand_id = $1", [brand.id]);
+        if (brandName.toUpperCase() === "SHAKIR" && Number(countResult.count) < 10) {
+          console.log("Cleaning up placeholder products for SHAKIR...");
+          await db.query("DELETE FROM products WHERE brand_id = $1", [brand.id]);
+        } else if (brandName.toUpperCase() === "FM" && Number(countResult.count) !== items.length) {
+          console.log(`Cleaning up FM products (current count: ${countResult.count}, expected: ${items.length})...`);
+          await db.query("DELETE FROM products WHERE brand_id = $1", [brand.id]);
         }
-        
-        const category = getCategory(itemName);
-        const description = getDescription(itemName);
-        const price = getPrice();
-        const ingredients = `Sample ingredients for ${itemName}: Flour, Water, Salt, and Secret Spices.`;
+      }
 
-        const values = [
-          { name: "Category Name (EN)", val: category.en },
-          { name: "Product Name (EN)", val: itemName },
-          { name: "Description (EN)", val: description.en },
-          { name: "Price", val: price },
-          { name: "Category Name (AR)", val: category.ar },
-          { name: "Product Name (AR)", val: itemName }, // Using EN name as fallback for AR
-          { name: "Description (AR)", val: description.ar },
-          { name: "Ingredients", val: ingredients }
-        ];
+      // Check if products already exist for this brand to avoid expensive per-product checks
+      const brandProductCount = await db.get("SELECT COUNT(*) as count FROM products WHERE brand_id = $1", [brand.id]);
+      if (Number(brandProductCount.count) >= items.length) {
+        continue;
+      }
 
-        for (const v of values) {
-          const fieldId = fieldIdMap[v.name];
-          if (fieldId) {
-            // Check if value already exists for this field
-            const valueExists = await db.get("SELECT 1 FROM product_field_values WHERE product_id = $1 AND field_id = $2", [productId, fieldId]);
-            if (!valueExists) {
-              await db.query("INSERT INTO product_field_values (product_id, field_id, value) VALUES ($1, $2, $3)", [productId, fieldId, v.val]);
+      console.log(`Seeding products for brand: ${brandName} (${items.length} items)...`);
+      
+      // Use a transaction for each brand to speed up seeding significantly
+      try {
+        await db.transaction(async (client) => {
+          for (const itemName of items) {
+            const productNameFieldId = fieldIdMap["Product Name (EN)"];
+            if (!productNameFieldId) continue;
+
+            const result = await client.query("INSERT INTO products (brand_id, created_by, status) VALUES ($1, $2, $3) RETURNING id", [brand.id, adminUserId || 1, 'Completed']);
+            const productId = result.rows[0].id;
+            
+            const category = getCategory(itemName);
+            const description = getDescription(itemName);
+            const price = getPrice();
+            const ingredients = `Sample ingredients for ${itemName}: Flour, Water, Salt, and Secret Spices.`;
+
+            const values = [
+              { name: "Category Name (EN)", val: category.en },
+              { name: "Product Name (EN)", val: itemName },
+              { name: "Description (EN)", val: description.en },
+              { name: "Price", val: price },
+              { name: "Category Name (AR)", val: category.ar },
+              { name: "Product Name (AR)", val: itemName },
+              { name: "Description (AR)", val: description.ar },
+              { name: "Ingredients", val: ingredients }
+            ];
+
+            for (const v of values) {
+              const fieldId = fieldIdMap[v.name];
+              if (fieldId) {
+                await client.query("INSERT INTO product_field_values (product_id, field_id, value) VALUES ($1, $2, $3)", [productId, fieldId, v.val]);
+              }
+            }
+
+            // Add sample modifiers
+            if (category.en === "Pizza") {
+              const groupResult = await client.query("INSERT INTO modifier_groups (product_id, name_en, name_ar, selection_type, is_required, min_selection, max_selection) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id", [productId, "Crust Type", "نوع العجينة", "single", 1, 1, 1]);
+              const groupId = groupResult.rows[0].id;
+              await client.query("INSERT INTO modifier_options (group_id, name_en, name_ar, price_adjustment) VALUES ($1, $2, $3, $4)", [groupId, "Thin Crust", "عجينة رقيقة", 0]);
+              await client.query("INSERT INTO modifier_options (group_id, name_en, name_ar, price_adjustment) VALUES ($1, $2, $3, $4)", [groupId, "Pan Pizza", "بان بيتزا", 0.5]);
+            } else if (category.en === "Burgers") {
+              const groupResult = await client.query("INSERT INTO modifier_groups (product_id, name_en, name_ar, selection_type, is_required, min_selection, max_selection) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id", [productId, "Extra Toppings", "إضافات", "multiple", 0, 0, 3]);
+              const groupId = groupResult.rows[0].id;
+              await client.query("INSERT INTO modifier_options (group_id, name_en, name_ar, price_adjustment) VALUES ($1, $2, $3, $4)", [groupId, "Extra Cheese", "جبنة إضافية", 0.250]);
+              await client.query("INSERT INTO modifier_options (group_id, name_en, name_ar, price_adjustment) VALUES ($1, $2, $3, $4)", [groupId, "Beef Bacon", "لحم بقري مقدد", 0.500]);
             }
           }
-        }
-
-        // Add sample modifiers if none exist
-        const modifierExists = await db.get("SELECT 1 FROM modifier_groups WHERE product_id = $1", [productId]);
-        if (!modifierExists) {
-          if (category.en === "Pizza") {
-            const groupResult = await db.query("INSERT INTO modifier_groups (product_id, name_en, name_ar, selection_type, is_required, min_selection, max_selection) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id", [productId, "Crust Type", "نوع العجينة", "single", 1, 1, 1]);
-            const groupId = groupResult.rows[0].id;
-            await db.query("INSERT INTO modifier_options (group_id, name_en, name_ar, price_adjustment) VALUES ($1, $2, $3, $4)", [groupId, "Thin Crust", "عجينة رقيقة", 0]);
-            await db.query("INSERT INTO modifier_options (group_id, name_en, name_ar, price_adjustment) VALUES ($1, $2, $3, $4)", [groupId, "Pan Pizza", "بان بيتزا", 0.5]);
-            await db.query("INSERT INTO modifier_options (group_id, name_en, name_ar, price_adjustment) VALUES ($1, $2, $3, $4)", [groupId, "Cheesy Crust", "عجينة محشوة بالجبن", 1.0]);
-          } else if (category.en === "Burgers") {
-            const groupResult = await db.query("INSERT INTO modifier_groups (product_id, name_en, name_ar, selection_type, is_required, min_selection, max_selection) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id", [productId, "Extra Toppings", "إضافات", "multiple", 0, 0, 3]);
-            const groupId = groupResult.rows[0].id;
-            await db.query("INSERT INTO modifier_options (group_id, name_en, name_ar, price_adjustment) VALUES ($1, $2, $3, $4)", [groupId, "Extra Cheese", "جبنة إضافية", 0.250]);
-            await db.query("INSERT INTO modifier_options (group_id, name_en, name_ar, price_adjustment) VALUES ($1, $2, $3, $4)", [groupId, "Beef Bacon", "لحم بقري مقدد", 0.500]);
-            await db.query("INSERT INTO modifier_options (group_id, name_en, name_ar, price_adjustment) VALUES ($1, $2, $3, $4)", [groupId, "Jalapenos", "هالبينو", 0.150]);
-          } else if (category.en === "Drinks") {
-            const groupResult = await db.query("INSERT INTO modifier_groups (product_id, name_en, name_ar, selection_type, is_required, min_selection, max_selection) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id", [productId, "Size", "الحجم", "single", 1, 1, 1]);
-            const groupId = groupResult.rows[0].id;
-            await db.query("INSERT INTO modifier_options (group_id, name_en, name_ar, price_adjustment) VALUES ($1, $2, $3, $4)", [groupId, "Small", "صغير", 0]);
-            await db.query("INSERT INTO modifier_options (group_id, name_en, name_ar, price_adjustment) VALUES ($1, $2, $3, $4)", [groupId, "Medium", "وسط", 0.250]);
-            await db.query("INSERT INTO modifier_options (group_id, name_en, name_ar, price_adjustment) VALUES ($1, $2, $3, $4)", [groupId, "Large", "كبير", 0.500]);
-          }
-        }
+        });
+        console.log(`Successfully seeded products for ${brandName}`);
+      } catch (err) {
+        console.error(`Failed to seed products for ${brandName}:`, err);
       }
     }
   }
@@ -1331,13 +1351,22 @@ async function startServer() {
     try {
       console.log("Connecting to PostgreSQL...");
       await initDb();
+      
       // Ensure unique constraints exist for ON CONFLICT
-  try { await db.exec("ALTER TABLE roles ADD CONSTRAINT roles_name_unique UNIQUE (name)"); } catch (e) {}
-  try { await db.exec("ALTER TABLE brands ADD CONSTRAINT brands_name_unique UNIQUE (name)"); } catch (e) {}
-  try { await db.exec("ALTER TABLE dynamic_fields ADD CONSTRAINT dynamic_fields_name_en_unique UNIQUE (name_en)"); } catch (e) {}
-
-  console.log("Database schema initialized successfully on PostgreSQL.");
-      await seedData(); 
+      try { await db.exec("ALTER TABLE roles ADD CONSTRAINT roles_name_unique UNIQUE (name)"); } catch (e) {}
+      
+      // Clean up brands before adding unique constraint
+      console.log("Starting brand cleanup and migration...");
+      await seedData();
+      
+      try { 
+        await db.exec("ALTER TABLE brands ADD CONSTRAINT brands_name_unique UNIQUE (name)"); 
+      } catch (e) {
+        console.log("Note: brands_name_unique constraint already exists or could not be added.");
+      }
+      
+      try { await db.exec("ALTER TABLE dynamic_fields ADD CONSTRAINT dynamic_fields_name_en_unique UNIQUE (name_en)"); } catch (e) {}
+      
       console.log("Database initialization complete.");
     } catch (dbErr: any) {
       console.error("CRITICAL ERROR: Failed to initialize database.");
@@ -2274,11 +2303,14 @@ async function startServer() {
 
   app.post("/api/brands", authenticate, authorize(["Technical Back Office", "Manager"]), async (req, res) => {
     const { name } = req.body;
+    if (!ALLOWED_BRANDS.includes(name.toUpperCase())) {
+      return res.status(400).json({ error: "Unauthorized brand name. Only specific brands are allowed." });
+    }
     try {
-      const result = await db.query("INSERT INTO brands (name) VALUES ($1) RETURNING id", [name]);
+      const result = await db.query("INSERT INTO brands (name) VALUES ($1) RETURNING id", [name.toUpperCase()]);
       const brandId = Number(result.rows[0].id);
-      await logAction((req as any).user.id, "CREATE", "brands", brandId, null, { name });
-      res.json({ id: brandId, name });
+      await logAction((req as any).user.id, "CREATE", "brands", brandId, null, { name: name.toUpperCase() });
+      res.json({ id: brandId, name: name.toUpperCase() });
     } catch (e) {
       res.status(400).json({ error: "Brand already exists" });
     }
@@ -2339,11 +2371,13 @@ async function startServer() {
 
   // Products Routes
   app.get("/api/products", authenticate, async (req, res) => {
-    const { brand_id, all } = req.query;
+    const { brand_id, all, page = '1', limit = '20', search, code, days } = req.query;
     const restriction = all === 'true' ? null : await getBrandRestriction((req as any).user);
+    const pageNum = parseInt(page as string) || 1;
+    const limitNum = parseInt(limit as string) || 20;
+    const offset = (pageNum - 1) * limitNum;
     
-    let query = `
-      SELECT p.*, b.name as brand_name, pc.code as product_code, u.username as creator_name
+    let baseQuery = `
       FROM products p
       LEFT JOIN brands b ON p.brand_id = b.id
       LEFT JOIN users u ON p.created_by = u.id
@@ -2353,12 +2387,36 @@ async function startServer() {
     const conditions: string[] = [];
 
     if (brand_id) {
-      conditions.push("p.brand_id = $1");
+      conditions.push("p.brand_id = $" + (params.length + 1));
       params.push(brand_id);
     }
 
-    const allProductsDebug = await db.all("SELECT p.id, b.name as brand_name FROM products p LEFT JOIN brands b ON p.brand_id = b.id");
-    console.log("DEBUG: All Products in DB:", allProductsDebug);
+    if (search) {
+      // Search in product name (from field values) or brand name
+      conditions.push(`(
+        EXISTS (
+          SELECT 1 FROM product_field_values fv 
+          WHERE fv.product_id = p.id AND LOWER(fv.value) LIKE LOWER($${params.length + 1})
+        ) OR LOWER(b.name) LIKE LOWER($${params.length + 1})
+      )`);
+      params.push(`%${search}%`);
+    }
+
+    if (code) {
+      conditions.push("LOWER(pc.code) LIKE LOWER($" + (params.length + 1) + ")");
+      params.push(`%${code}%`);
+    }
+
+    if (days && days !== 'all') {
+      if (days === 'today') {
+        conditions.push("p.created_at >= CURRENT_DATE");
+      } else {
+        const daysNum = parseInt(days as string);
+        if (!isNaN(daysNum)) {
+          conditions.push(`p.created_at >= CURRENT_TIMESTAMP - INTERVAL '${daysNum} days'`);
+        }
+      }
+    }
 
     if (restriction) {
       const placeholders = restriction.brands.map((_: any, i: number) => `$${params.length + i + 1}`).join(',');
@@ -2370,17 +2428,28 @@ async function startServer() {
       params.push(...restriction.brands);
     }
 
+    let whereClause = "";
     if (conditions.length > 0) {
-      query += " WHERE " + conditions.join(" AND ");
+      whereClause = " WHERE " + conditions.join(" AND ");
     }
 
-    query += " ORDER BY p.created_at DESC";
+    // Get total count for pagination
+    const countResult = await db.get(`SELECT COUNT(*) as total ${baseQuery} ${whereClause}`, params);
+    const total = parseInt(countResult.total);
+
+    let query = `
+      SELECT p.*, b.name as brand_name, pc.code as product_code, u.username as creator_name
+      ${baseQuery}
+      ${whereClause}
+      ORDER BY p.created_at DESC
+      LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+    `;
     
-    const products = await db.all(query, params) as any[];
+    const products = await db.all(query, [...params, limitNum, offset]) as any[];
     const productIds = products.map(p => p.id);
     
     if (productIds.length === 0) {
-      return res.json({ products: [], fieldValues: [] });
+      return res.json({ products: [], fieldValues: [], total, page: pageNum, totalPages: Math.ceil(total / limitNum) });
     }
 
     const productNameFieldId = await getProductNameFieldId();
@@ -2419,7 +2488,13 @@ async function startServer() {
       return result;
     });
 
-    res.json({ products: filteredProducts, fieldValues });
+    res.json({ 
+      products: filteredProducts, 
+      fieldValues,
+      total,
+      page: pageNum,
+      totalPages: Math.ceil(total / limitNum)
+    });
   });
 
   app.post("/api/products/:id/toggle-offline", authenticate, authorize(["Manager", "Super Visor"]), async (req, res) => {
@@ -2666,7 +2741,7 @@ async function startServer() {
 
   // User Management
   try {
-    db.exec("ALTER TABLE users ADD COLUMN branch_id INTEGER REFERENCES branches(id)");
+    await db.exec("ALTER TABLE users ADD COLUMN branch_id INTEGER REFERENCES branches(id)");
   } catch (e) {}
 
   // User Management
