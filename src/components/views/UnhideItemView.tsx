@@ -296,7 +296,7 @@ export default function UnhideItemView() {
   };
 
   return (
-    <div className="max-w-[1600px] mx-auto space-y-10 pb-20">
+    <div className="max-w-[1600px] mx-auto space-y-6 md:space-y-10 pb-20 px-4 sm:px-0">
       <motion.div 
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -304,31 +304,31 @@ export default function UnhideItemView() {
       >
         <div className="space-y-1">
           <div className="flex items-center gap-3">
-            <div className="p-3 bg-zinc-900 dark:bg-white rounded-2xl text-white dark:text-zinc-900 shadow-xl shadow-zinc-900/10">
-              <RefreshCw size={28} strokeWidth={2.5} />
+            <div className="p-2 md:p-3 bg-zinc-900 dark:bg-white rounded-xl md:rounded-2xl text-white dark:text-zinc-900 shadow-xl shadow-zinc-900/10">
+              <RefreshCw size={24} className="md:w-7 md:h-7" strokeWidth={2.5} />
             </div>
-            <h2 className="text-5xl font-black text-zinc-900 dark:text-white tracking-tight">Unhide Items</h2>
+            <h2 className="text-3xl md:text-5xl font-black text-zinc-900 dark:text-white tracking-tight">Unhide Items</h2>
           </div>
-          <p className="text-zinc-500 dark:text-zinc-400 font-semibold text-lg ml-1">Restore product availability across branches.</p>
+          <p className="text-zinc-500 dark:text-zinc-400 font-semibold text-sm md:text-lg ml-1">Restore product availability across branches.</p>
         </div>
         
-        <div className="flex items-center gap-4">
-          <div className="px-6 py-3 bg-zinc-900 dark:bg-white rounded-2xl text-white dark:text-zinc-900 shadow-xl shadow-zinc-900/20 dark:shadow-white/5 flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3 md:gap-4">
+          <div className="px-4 md:px-6 py-2 md:py-3 bg-zinc-900 dark:bg-white rounded-xl md:rounded-2xl text-white dark:text-zinc-900 shadow-xl shadow-zinc-900/20 dark:shadow-white/5 flex items-center gap-3">
             <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-            <span className="text-sm font-black tracking-tight">{records.length} ITEMS CURRENTLY HIDDEN</span>
+            <span className="text-[10px] md:text-sm font-black tracking-tight">{records.length} ITEMS CURRENTLY HIDDEN</span>
           </div>
           <button 
             onClick={handleExport}
-            className="p-4 bg-white dark:bg-zinc-900 border-2 border-zinc-100 dark:border-zinc-800 rounded-2xl text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-all shadow-sm group"
+            className="p-3 md:p-4 bg-white dark:bg-zinc-900 border-2 border-zinc-100 dark:border-zinc-800 rounded-xl md:rounded-2xl text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-all shadow-sm group"
             title="Export Database"
           >
-            <Download size={20} className="group-hover:scale-110 transition-transform" />
+            <Download size={18} className="md:w-5 md:h-5 group-hover:scale-110 transition-transform" />
           </button>
         </div>
       </motion.div>
 
-      <div className="bg-white dark:bg-zinc-900 rounded-[2.5rem] border border-zinc-200 dark:border-zinc-800 p-10 shadow-[0_32px_64px_-12px_rgba(0,0,0,0.05)] space-y-8">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="bg-white dark:bg-zinc-900 rounded-3xl md:rounded-[2.5rem] border border-zinc-200 dark:border-zinc-800 p-4 sm:p-10 shadow-[0_32px_64px_-12px_rgba(0,0,0,0.05)] space-y-6 md:space-y-8">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-6">
           <div className="lg:col-span-3 space-y-2">
             <label className="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-400 dark:text-zinc-500 ml-1">Brand Filter</label>
             <div className="relative group">
@@ -380,43 +380,42 @@ export default function UnhideItemView() {
           </div>
         </div>
 
-        <div className="flex flex-col md:flex-row items-center justify-between gap-6 pt-6 border-t border-zinc-100 dark:border-zinc-800">
-          <div className="flex flex-col sm:flex-row items-center gap-6 w-full sm:w-auto">
+        <div className="flex flex-col md:flex-row items-center justify-between gap-4 md:gap-6 pt-6 border-t border-zinc-100 dark:border-zinc-800">
+          <div className="flex items-center gap-4 w-full md:w-auto justify-between md:justify-start">
             <button 
               onClick={fetchData}
-              className="p-4 bg-zinc-100 dark:bg-zinc-800 rounded-2xl text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-all"
+              className="p-3 md:p-4 bg-zinc-100 dark:bg-zinc-800 rounded-xl md:rounded-2xl text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-all"
               title="Refresh Data"
             >
-              <RefreshCw size={20} className={cn(loading && "animate-spin")} />
+              <RefreshCw size={18} className={cn("md:w-5 md:h-5", loading && "animate-spin")} />
+            </button>
+            <button 
+              onClick={handleSelectAll}
+              className="md:hidden px-4 py-2 bg-zinc-100 dark:bg-zinc-800 rounded-xl text-[10px] font-black uppercase tracking-widest text-zinc-600 dark:text-zinc-400"
+            >
+              {selectedIds.length === filteredRecords.length ? 'Deselect All' : 'Select All'}
             </button>
           </div>
 
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-3 text-zinc-400">
-              <Sparkles size={16} className="text-amber-400" />
-              <p className="text-[10px] font-black uppercase tracking-widest leading-relaxed">
-                {selectedIds.length} items selected for restoration<br/>
-                Showing {filteredRecords.length} of {records.length} records
-              </p>
-            </div>
+          <div className="flex flex-col sm:flex-row items-center gap-3 md:gap-6 w-full md:w-auto">
             {user?.role_name !== 'Call Center' && (
-              <div className="flex items-center gap-3">
+              <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
                 <button 
                   onClick={() => handleUnhide(selectedIds)}
                   disabled={selectedIds.length === 0 || processing}
                   className={cn(
-                    "px-8 py-4 rounded-2xl font-black text-sm tracking-widest transition-all active:scale-95 flex items-center justify-center gap-3 shadow-2xl disabled:opacity-40 disabled:grayscale",
+                    "w-full sm:w-auto px-6 md:px-8 py-3 md:py-4 rounded-xl md:rounded-2xl font-black text-[10px] md:text-sm tracking-widest transition-all active:scale-95 flex items-center justify-center gap-3 shadow-2xl disabled:opacity-40 disabled:grayscale",
                     "bg-blue-600 text-white hover:bg-blue-700 shadow-blue-600/20"
                   )}
                 >
                   {processing ? (
                     <>
-                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      <div className="w-3 h-3 md:w-4 md:h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                       PROCESSING...
                     </>
                   ) : (
                     <>
-                      <Send size={18} />
+                      <Send size={16} className="md:w-[18px] md:h-[18px]" />
                       {lang === 'en' ? 'UNHIDE SELECTED' : 'إلغاء إخفاء المحدد'}
                     </>
                   )}
@@ -433,18 +432,18 @@ export default function UnhideItemView() {
                   }}
                   disabled={filteredRecords.length === 0 || processing}
                   className={cn(
-                    "px-8 py-4 rounded-2xl font-black text-sm tracking-widest transition-all active:scale-95 flex items-center justify-center gap-3 shadow-2xl disabled:opacity-40 disabled:grayscale",
+                    "w-full sm:w-auto px-6 md:px-8 py-3 md:py-4 rounded-xl md:rounded-2xl font-black text-[10px] md:text-sm tracking-widest transition-all active:scale-95 flex items-center justify-center gap-3 shadow-2xl disabled:opacity-40 disabled:grayscale",
                     "bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-600/20"
                   )}
                 >
                   {processing ? (
                     <>
-                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      <div className="w-3 h-3 md:w-4 md:h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                       PROCESSING...
                     </>
                   ) : (
                     <>
-                      <RefreshCw size={18} />
+                      <RefreshCw size={16} className="md:w-[18px] md:h-[18px]" />
                       {lang === 'en' ? 'UNHIDE ALL' : 'إلغاء إخفاء الكل'}
                     </>
                   )}
@@ -454,8 +453,9 @@ export default function UnhideItemView() {
           </div>
         </div>
 
-        <div className="border-2 border-zinc-100 dark:border-zinc-800 rounded-[2rem] overflow-hidden bg-zinc-50/30 dark:bg-zinc-950/30">
-          <div className="overflow-x-auto custom-scrollbar">
+        <div className="border-2 border-zinc-100 dark:border-zinc-800 rounded-2xl md:rounded-[2rem] overflow-hidden bg-zinc-50/30 dark:bg-zinc-950/30">
+          {/* Desktop Table View */}
+          <div className="hidden md:block overflow-x-auto custom-scrollbar">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-white dark:bg-zinc-900">
@@ -626,6 +626,122 @@ export default function UnhideItemView() {
                 </AnimatePresence>
               </tbody>
             </table>
+          </div>
+
+          {/* Mobile Card View */}
+          <div className="md:hidden p-4 space-y-4">
+            <AnimatePresence mode="popLayout">
+              {filteredRecords.length === 0 ? (
+                <div className="py-20 text-center">
+                  <div className="flex flex-col items-center gap-4 text-zinc-300 dark:text-zinc-700">
+                    <AlertCircle size={48} strokeWidth={1} />
+                    <p className="text-sm font-black uppercase tracking-widest opacity-40">No hidden items found</p>
+                  </div>
+                </div>
+              ) : (
+                filteredRecords.map((item, idx) => (
+                  <motion.div
+                    key={item.id}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: idx * 0.05 }}
+                    onClick={() => toggleSelect(item.id)}
+                    className={cn(
+                      "p-4 rounded-2xl border-2 transition-all space-y-4",
+                      selectedIds.includes(item.id)
+                        ? "bg-blue-50/50 dark:bg-blue-900/10 border-blue-500/50"
+                        : "bg-white dark:bg-zinc-900 border-zinc-100 dark:border-zinc-800"
+                    )}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={cn(
+                            "w-5 h-5 rounded border-2 flex items-center justify-center transition-all",
+                            selectedIds.includes(item.id)
+                              ? "bg-blue-600 border-blue-600"
+                              : "border-zinc-200 dark:border-zinc-800"
+                          )}
+                        >
+                          {selectedIds.includes(item.id) && <Check size={12} className="text-white" strokeWidth={4} />}
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">{item.brand_name}</span>
+                          <span className="text-sm font-black text-zinc-900 dark:text-white">{item.product_name}</span>
+                        </div>
+                      </div>
+                      <div className="px-2 py-1 bg-zinc-100 dark:bg-zinc-800 rounded-lg">
+                        <span className="text-[9px] font-bold text-zinc-600 dark:text-zinc-400 uppercase">{item.reason}</span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4 pt-2 border-t border-zinc-50 dark:border-zinc-800">
+                      <div className="flex items-center gap-2">
+                        <MapPin size={12} className="text-zinc-400" />
+                        <span className="text-[10px] font-bold text-zinc-500">{item.branch_name || 'All Branches'}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Clock size={12} className="text-zinc-400" />
+                        <span className="text-[10px] font-bold text-zinc-500">{formatDate(item.created_at)}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-2">
+                      <div className="flex items-center gap-2">
+                        <div className="w-5 h-5 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-[8px] font-black text-zinc-500">
+                          {item.username?.[0]?.toUpperCase()}
+                        </div>
+                        <span className="text-[9px] font-bold text-zinc-500 uppercase">{item.username}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleWhatsApp(item);
+                          }}
+                          className="p-2 text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg"
+                        >
+                          <MessageCircle size={16} />
+                        </button>
+                        {user?.role_name !== 'Call Center' && (
+                          <>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingItem(item);
+                                setEditForm({
+                                  brand_id: item.brand_id,
+                                  branch_id: item.branch_id,
+                                  product_id: item.product_id,
+                                  agent_name: item.agent_name,
+                                  reason: item.reason,
+                                  responsible_party: item.responsible_party,
+                                  comment: item.comment || '',
+                                  action_to_unhide: item.action_to_unhide || '',
+                                  requested_at: item.requested_at ? new Date(item.requested_at).toISOString().slice(0, 16) : ''
+                                });
+                              }}
+                              className="p-2 text-blue-600 bg-blue-50 dark:bg-blue-900/20 rounded-lg"
+                            >
+                              <RefreshCw size={16} />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleUnhide([item.id]);
+                              }}
+                              className="p-2 text-red-600 bg-red-50 dark:bg-red-900/20 rounded-lg"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </motion.div>
+                ))
+              )}
+            </AnimatePresence>
           </div>
         </div>
       </div>
