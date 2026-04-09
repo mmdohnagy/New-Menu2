@@ -2865,7 +2865,7 @@ async function startServer() {
   });
 
   // Audit Logs
-  app.get("/api/audit-logs", authenticate, authorize(["Manager", "Call Center", "Super Visor"]), async (req, res) => {
+  app.get("/api/audit-logs", authenticate, authorize(["Technical Back Office", "Manager", "Call Center", "Super Visor"]), async (req, res) => {
     const logs = await db.all(`
       SELECT a.*, u.username 
       FROM audit_logs a 
@@ -2916,7 +2916,7 @@ async function startServer() {
       'Comment': r.comment || '',
       'Notes': r.internal_notes || '',
       'Recorded By': r.username,
-      'Recorded Date & time': r.created_at ? formatter.format(new Date(r.created_at + (r.created_at.includes('Z') || r.created_at.includes('T') ? '' : 'Z'))) : ''
+      'Recorded Date & time': r.created_at ? formatter.format(new Date(String(r.created_at) + (String(r.created_at).includes('Z') || String(r.created_at).includes('T') ? '' : 'Z'))) : ''
     }));
 
     const workbook = XLSX.utils.book_new();
@@ -3281,7 +3281,7 @@ async function startServer() {
       'Requested At': r.requested_at ? formatter.format(new Date(r.requested_at)) : '',
       'Responsible Party': r.responsible_party,
       'Recorded By': r.username,
-      'Recorded At': r.created_at ? formatter.format(new Date(r.created_at + (r.created_at.includes('Z') || r.created_at.includes('T') ? '' : 'Z'))) : ''
+      'Recorded At': r.created_at ? formatter.format(new Date(String(r.created_at) + (String(r.created_at).includes('Z') || String(r.created_at).includes('T') ? '' : 'Z'))) : ''
     }));
 
     const worksheet = XLSX.utils.json_to_sheet(data);
@@ -3350,8 +3350,10 @@ async function startServer() {
             if (!session['Unhide Time']) {
               session['Unhide Time'] = log.timestamp;
               session.Branch = branch;
-              const hideTime = new Date(session['Hide Time'] + (session['Hide Time'].includes('Z') || session['Hide Time'].includes('T') ? '' : 'Z')).getTime();
-              const unhideTime = new Date(log.timestamp + (log.timestamp.includes('Z') || log.timestamp.includes('T') ? '' : 'Z')).getTime();
+              const hideTimeStr = String(session['Hide Time']);
+              const unhideTimeStr = String(log.timestamp);
+              const hideTime = new Date(hideTimeStr + (hideTimeStr.includes('Z') || hideTimeStr.includes('T') ? '' : 'Z')).getTime();
+              const unhideTime = new Date(unhideTimeStr + (unhideTimeStr.includes('Z') || unhideTimeStr.includes('T') ? '' : 'Z')).getTime();
               session['Duration (Min)'] = Math.round((unhideTime - hideTime) / (1000 * 60));
               
               if (session.Branch === branch) {
@@ -3371,8 +3373,10 @@ async function startServer() {
                 'Unhide Time': log.timestamp,
                 updateLogs: [...session.updateLogs],
               };
-              const hideTime = new Date(newSession['Hide Time'] + (newSession['Hide Time'].includes('Z') || newSession['Hide Time'].includes('T') ? '' : 'Z')).getTime();
-              const unhideTime = new Date(log.timestamp + (log.timestamp.includes('Z') || log.timestamp.includes('T') ? '' : 'Z')).getTime();
+              const hideTimeStr = String(newSession['Hide Time']);
+              const unhideTimeStr = String(log.timestamp);
+              const hideTime = new Date(hideTimeStr + (hideTimeStr.includes('Z') || hideTimeStr.includes('T') ? '' : 'Z')).getTime();
+              const unhideTime = new Date(unhideTimeStr + (unhideTimeStr.includes('Z') || unhideTimeStr.includes('T') ? '' : 'Z')).getTime();
               newSession['Duration (Min)'] = Math.round((unhideTime - hideTime) / (1000 * 60));
               sessions.push(newSession);
             }
@@ -3425,9 +3429,11 @@ async function startServer() {
     if (startDate) {
       const start = new Date(startDate);
       start.setHours(0, 0, 0, 0);
-      filteredSessions = filteredSessions = filteredSessions.filter(s => {
-        const hideTime = s['Hide Time'] ? new Date(s['Hide Time'] + (s['Hide Time'].includes('Z') || s['Hide Time'].includes('T') ? '' : 'Z')) : null;
-        const unhideTime = s['Unhide Time'] ? new Date(s['Unhide Time'] + (s['Unhide Time'].includes('Z') || s['Unhide Time'].includes('T') ? '' : 'Z')) : null;
+      filteredSessions = filteredSessions.filter(s => {
+        const hideTimeVal = s['Hide Time'] ? String(s['Hide Time']) : null;
+        const unhideTimeVal = s['Unhide Time'] ? String(s['Unhide Time']) : null;
+        const hideTime = hideTimeVal ? new Date(hideTimeVal + (hideTimeVal.includes('Z') || hideTimeVal.includes('T') ? '' : 'Z')) : null;
+        const unhideTime = unhideTimeVal ? new Date(unhideTimeVal + (unhideTimeVal.includes('Z') || unhideTimeVal.includes('T') ? '' : 'Z')) : null;
         return (hideTime && hideTime >= start) || (unhideTime && unhideTime >= start);
       });
     }
@@ -3436,8 +3442,10 @@ async function startServer() {
       const end = new Date(endDate);
       end.setHours(23, 59, 59, 999);
       filteredSessions = filteredSessions.filter(s => {
-        const hideTime = s['Hide Time'] ? new Date(s['Hide Time'] + (s['Hide Time'].includes('Z') || s['Hide Time'].includes('T') ? '' : 'Z')) : null;
-        const unhideTime = s['Unhide Time'] ? new Date(s['Unhide Time'] + (s['Unhide Time'].includes('Z') || s['Unhide Time'].includes('T') ? '' : 'Z')) : null;
+        const hideTimeVal = s['Hide Time'] ? String(s['Hide Time']) : null;
+        const unhideTimeVal = s['Unhide Time'] ? String(s['Unhide Time']) : null;
+        const hideTime = hideTimeVal ? new Date(hideTimeVal + (hideTimeVal.includes('Z') || hideTimeVal.includes('T') ? '' : 'Z')) : null;
+        const unhideTime = unhideTimeVal ? new Date(unhideTimeVal + (unhideTimeVal.includes('Z') || unhideTimeVal.includes('T') ? '' : 'Z')) : null;
         return (hideTime && hideTime <= end) || (unhideTime && unhideTime <= end);
       });
     }
@@ -3474,18 +3482,22 @@ async function startServer() {
       let updateInfo = '';
       if (s.updateLogs.length > 0) {
         const lastUpdate = s.updateLogs[s.updateLogs.length - 1];
-        updateInfo = `Last update: ${formatter.format(new Date(lastUpdate.timestamp + (lastUpdate.timestamp.includes('Z') || lastUpdate.timestamp.includes('T') ? '' : 'Z')))} by ${lastUpdate.username}`;
+        const lastUpdateTs = String(lastUpdate.timestamp);
+        updateInfo = `Last update: ${formatter.format(new Date(lastUpdateTs + (lastUpdateTs.includes('Z') || lastUpdateTs.includes('T') ? '' : 'Z')))} by ${lastUpdate.username}`;
         if (s.updateLogs.length > 1) {
           updateInfo += ` (${s.updateLogs.length} total edits)`;
         }
       }
 
+      const hideTimeVal = s['Hide Time'] ? String(s['Hide Time']) : null;
+      const unhideTimeVal = s['Unhide Time'] ? String(s['Unhide Time']) : null;
+
       return {
         'Brand': s.Brand,
         'Branch': s.Branch,
         'Item': s.Item,
-        'Hide Time': s['Hide Time'] ? formatter.format(new Date(s['Hide Time'] + (s['Hide Time'].includes('Z') || s['Hide Time'].includes('T') ? '' : 'Z'))) : 'N/A',
-        'Unhide Time': s['Unhide Time'] ? formatter.format(new Date(s['Unhide Time'] + (s['Unhide Time'].includes('Z') || s['Unhide Time'].includes('T') ? '' : 'Z'))) : 'STILL HIDDEN',
+        'Hide Time': hideTimeVal ? formatter.format(new Date(hideTimeVal + (hideTimeVal.includes('Z') || hideTimeVal.includes('T') ? '' : 'Z'))) : 'N/A',
+        'Unhide Time': unhideTimeVal ? formatter.format(new Date(unhideTimeVal + (unhideTimeVal.includes('Z') || unhideTimeVal.includes('T') ? '' : 'Z'))) : 'STILL HIDDEN',
         'Update Info': updateInfo || '-',
         'Duration (Min)': s['Duration (Min)'] !== null ? s['Duration (Min)'] : (s['Hide Time'] && !s['Unhide Time'] ? '-' : 'N/A'),
         'Agent': s.Agent,
@@ -3493,8 +3505,8 @@ async function startServer() {
         'Action to Unhide': s['Action to Unhide'],
         'Comment': s.Comment,
         'Requested At': s['Requested At'] 
-          ? (s['Requested At'].includes('/') || s['Requested At'].includes('-') 
-              ? formatter.format(new Date(s['Requested At'] + (s['Requested At'].includes('Z') || s['Requested At'].includes('T') ? '' : 'Z')))
+          ? (String(s['Requested At']).includes('/') || String(s['Requested At']).includes('-') 
+              ? formatter.format(new Date(String(s['Requested At']) + (String(s['Requested At']).includes('Z') || String(s['Requested At']).includes('T') ? '' : 'Z')))
               : s['Requested At'])
           : '',
         'Recorded By': s['Recorded By']
