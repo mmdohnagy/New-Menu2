@@ -199,7 +199,7 @@ export default function TechnicalBackOfficeView() {
             {t.busyTab}
           </button>
         )}
-        {(user?.role_name === 'Manager' || user?.role_name === 'Super Visor' || user?.role_name === 'Technical Back Office' || user?.role_name === 'Call Center') && (
+        {(user?.role_name === 'Manager' || user?.role_name === 'Super Visor' || user?.role_name === 'Technical Back Office' || user?.role_name === 'Call Center' || user?.role_name === 'Restaurants') && (
           <button
             onClick={() => setActiveTab('database')}
             className={cn(
