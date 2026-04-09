@@ -64,9 +64,9 @@ export default function HideItemView() {
   }, [selectedBrand]);
 
   useEffect(() => {
-    if (selectedBrand) fetchBrandSpecificData();
-    else { setBranches([]); setProducts([]); }
-  }, [selectedBrand]);
+    if (selectedBrand && fields.length > 0) fetchBrandSpecificData();
+    else if (!selectedBrand) { setBranches([]); setProducts([]); }
+  }, [selectedBrand, fields]);
 
   const fetchInitialData = async () => {
     setLoading(true);
@@ -77,6 +77,10 @@ export default function HideItemView() {
         fetchWithAuth(`${API_URL}/hidden-items`),
         fetchWithAuth(`${API_URL}/fields`)
       ]);
+      if (fieldsRes.ok) {
+        const data = await fieldsRes.json();
+        setFields(data.fields || []);
+      }
       if (brandsRes.ok) {
         const data = await brandsRes.json();
         const brandsList = Array.isArray(data) ? data : [];
@@ -96,10 +100,6 @@ export default function HideItemView() {
       if (hiddenRes.ok) {
         const data = await hiddenRes.json();
         setHiddenItems(Array.isArray(data) ? data : []);
-      }
-      if (fieldsRes.ok) {
-        const data = await fieldsRes.json();
-        setFields(data.fields || []);
       }
     } catch (err: any) {
       if (err.isAuthError) return;
@@ -130,7 +130,7 @@ export default function HideItemView() {
       if (productsRes.ok) {
         const data = await productsRes.json();
         if (data && Array.isArray(data.products)) {
-          const productNameFieldId = (Array.isArray(fields) ? fields : []).find(f => f.name_en === 'Product Name (EN)')?.id || 2;
+          const productNameFieldId = (Array.isArray(fields) ? fields : []).find(f => f.name_en === 'Product Name (EN)')?.id || 3;
           const ingredientsFieldId = (Array.isArray(fields) ? fields : []).find(f => f.name_en === 'Ingredients')?.id;
           
           const mappedProducts = data.products.map((p: any) => {
