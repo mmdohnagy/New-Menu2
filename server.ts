@@ -1547,9 +1547,65 @@ async function startServer() {
     
     try {
       if (request.type === 'hide_unhide') {
-        if (data.branch_id === null) {
+        if (data.action === 'UNHIDE') {
+          const unhide_at = getCurrentKuwaitTime();
+          const productNameFieldId = await getProductNameFieldId();
+
+          for (const id of data.ids) {
+            const item = await db.get(`
+              SELECT hi.*, fv.value as product_name, br.name as branch_name, b.name as brand_name
+              FROM hidden_items hi
+              LEFT JOIN product_field_values fv ON hi.product_id = fv.product_id AND fv.field_id = $1
+              LEFT JOIN branches br ON hi.branch_id = br.id
+              LEFT JOIN brands b ON hi.brand_id = b.id
+              WHERE hi.id = $2
+            `, [productNameFieldId, id]) as any;
+
+            if (item) {
+              await logAction(request.user_id, "UNHIDE", "products", item.product_id, { 
+                product_name: item.product_name || 'Unknown Product', 
+                brand_name: item.brand_name || 'Unknown Brand',
+                branch: item.branch_name || 'All Branches',
+                brand_id: item.brand_id,
+                branch_id: item.branch_id
+              }, null);
+
+              await db.query(`
+                INSERT INTO hide_history (
+                  user_id, brand_id, branch_id, product_id, action,
+                  agent_name, reason, action_to_unhide, comment, requested_at, responsible_party, timestamp
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+              `, [
+                request.user_id, item.brand_id, item.branch_id, item.product_id, 'UNHIDE',
+                item.agent_name, item.reason, item.action_to_unhide, 
+                item.comment, unhide_at, item.responsible_party, unhide_at
+              ]);
+
+              await db.query("DELETE FROM hidden_items WHERE id = $1", [id]);
+            }
+          }
+          broadcast({
+            type: "NOTIFICATION",
+            notificationType: "HIDDEN_ITEM",
+            title_en: "Unhide Request Approved",
+            title_ar: "تمت الموافقة على طلب الإظهار",
+            message_en: `Unhide request approved`,
+            message_ar: `تمت الموافقة على طلب إظهار المنتج`,
+            role_target: ["Restaurants", "Manager", "Super Visor", "Area Manager"]
+          });
+          broadcast({ type: "HIDDEN_ITEMS_UPDATED" });
+        } else if (data.branch_id === null) {
           const branches = await db.all("SELECT id FROM branches WHERE brand_id = $1", [data.brand_id]) as { id: number }[];
+          const productNameFieldId = await getProductNameFieldId();
+          const brand = await db.get("SELECT name FROM brands WHERE id = $1", [data.brand_id]) as { name: string };
+          
           for (const productId of data.product_ids) {
+            const product = await db.get(`
+              SELECT fv.value as name 
+              FROM product_field_values fv 
+              WHERE fv.product_id = $1 AND fv.field_id = $2
+            `, [productId, productNameFieldId]) as { name: string };
+
             for (const branch of branches) {
               await db.query(`
                 INSERT INTO hidden_items (
@@ -1565,9 +1621,37 @@ async function startServer() {
                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
               `, [request.user_id, data.brand_id, branch.id, productId, 'HIDE', data.agent_name, data.reason, data.action_to_unhide, data.comment, data.requested_at, data.responsible_party]);
             }
+
+            await logAction(request.user_id, "HIDE", "products", productId, {
+              product_name: product?.name || 'Unknown Product',
+              brand_name: brand?.name || 'Unknown Brand',
+              branch: 'All Branches',
+              brand_id: data.brand_id,
+              reason: data.reason
+            }, null);
           }
+          broadcast({
+            type: "NOTIFICATION",
+            notificationType: "HIDDEN_ITEM",
+            title_en: "Hide Request Approved",
+            title_ar: "تمت الموافقة على طلب الإخفاء",
+            message_en: `Hide request approved`,
+            message_ar: `تمت الموافقة على طلب إخفاء المنتج`,
+            role_target: ["Restaurants", "Manager", "Super Visor", "Area Manager"]
+          });
+          broadcast({ type: "HIDDEN_ITEMS_UPDATED" });
         } else {
+          const productNameFieldId = await getProductNameFieldId();
+          const brand = await db.get("SELECT name FROM brands WHERE id = $1", [data.brand_id]) as { name: string };
+          const branch = await db.get("SELECT name FROM branches WHERE id = $1", [data.branch_id]) as { name: string };
+
           for (const productId of data.product_ids) {
+            const product = await db.get(`
+              SELECT fv.value as name 
+              FROM product_field_values fv 
+              WHERE fv.product_id = $1 AND fv.field_id = $2
+            `, [productId, productNameFieldId]) as { name: string };
+
             await db.query(`
               INSERT INTO hidden_items (
                 user_id, brand_id, branch_id, product_id, agent_name, reason, 
@@ -1581,43 +1665,105 @@ async function startServer() {
                 agent_name, reason, action_to_unhide, comment, requested_at, responsible_party
               ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             `, [request.user_id, data.brand_id, data.branch_id, productId, 'HIDE', data.agent_name, data.reason, data.action_to_unhide, data.comment, data.requested_at, data.responsible_party]);
+
+            await logAction(request.user_id, "HIDE", "products", productId, {
+              product_name: product?.name || 'Unknown Product',
+              brand_name: brand?.name || 'Unknown Brand',
+              branch: branch?.name || 'Unknown Branch',
+              brand_id: data.brand_id,
+              branch_id: data.branch_id,
+              reason: data.reason
+            }, null);
           }
+          broadcast({
+            type: "NOTIFICATION",
+            notificationType: "HIDDEN_ITEM",
+            title_en: "Hide Request Approved",
+            title_ar: "تمت الموافقة على طلب الإخفاء",
+            message_en: `Hide request approved`,
+            message_ar: `تمت الموافقة على طلب إخفاء المنتج`,
+            role_target: ["Restaurants", "Manager", "Super Visor", "Area Manager"]
+          });
+          broadcast({ type: "HIDDEN_ITEMS_UPDATED" });
         }
-        broadcast({
-          type: "NOTIFICATION",
-          notificationType: "HIDDEN_ITEM",
-          title_en: "Request Approved",
-          title_ar: "تمت الموافقة على الطلب",
-          message_en: `Hide/Unhide request approved`,
-          message_ar: `تمت الموافقة على طلب إخفاء/إظهار`,
-          brand_id: data.brand_id,
-          role_target: ["Restaurants", "Manager", "Super Visor", "Area Manager"]
-        });
-        broadcast({ type: "HIDDEN_ITEMS_UPDATED" });
       } else if (request.type === 'busy_branch') {
-        await db.query(`
-          INSERT INTO busy_period_records (
-            user_id, date, brand, branch, start_time, end_time, 
-            total_duration, total_duration_minutes, reason_category, responsible_party, 
-            comment, internal_notes
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-        `, [
-          request.user_id, data.date, data.brand, data.branch, data.start_time, data.end_time,
-          data.total_duration, data.total_duration_minutes || 0, data.reason_category, data.responsible_party,
-          data.comment, data.internal_notes
-        ]);
-        broadcast({
-          type: "NOTIFICATION",
-          notificationType: "BUSY_BRANCH",
-          title_en: "Request Approved",
-          title_ar: "تمت الموافقة على الطلب",
-          message_en: `Busy branch request approved`,
-          message_ar: `تمت الموافقة على طلب فرع مشغول`,
-          brand_id: data.brand,
-          branch_id: data.branch,
-          role_target: ["Restaurants", "Manager", "Super Visor", "Area Manager"]
-        });
-        broadcast({ type: "BUSY_PERIOD_CREATED" });
+        if (data.action === 'OPEN') {
+          const now = new Date();
+          const formatter = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'Asia/Kuwait',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+          });
+          const end_time = formatter.format(now);
+          
+          // Calculate duration
+          let total_duration = '0h 0m';
+          let total_duration_minutes = 0;
+          try {
+            const startParts = data.start_time.split(':');
+            const endParts = end_time.split(':');
+            
+            const startTotalMinutes = parseInt(startParts[0]) * 60 + parseInt(startParts[1]);
+            const endTotalMinutes = parseInt(endParts[0]) * 60 + parseInt(endParts[1]);
+            
+            let diff = endTotalMinutes - startTotalMinutes;
+            if (diff < 0) diff += 24 * 60; // handle overnight
+            
+            const hours = Math.floor(diff / 60);
+            const minutes = diff % 60;
+            total_duration = `${hours}h ${minutes}m`;
+            total_duration_minutes = diff;
+          } catch (e) {
+            console.error("Error calculating duration", e);
+          }
+
+          await db.query(`
+            UPDATE busy_period_records 
+            SET end_time = $1, total_duration = $2, total_duration_minutes = $3
+            WHERE id = $4
+          `, [end_time, total_duration, total_duration_minutes, data.id]);
+
+          await logAction((req as any).user.id, "BUSY_UPDATE", "busy_period_records", Number(data.id), null, { 
+            brand: data.brand, branch: data.branch, end_time, total_duration, reason_category: data.reason_category, approved_open: true
+          });
+
+          broadcast({
+            type: "NOTIFICATION",
+            notificationType: "BUSY_BRANCH",
+            title_en: "Open Request Approved",
+            title_ar: "تمت الموافقة على طلب الفتح",
+            message_en: `Open branch request approved for ${data.branch}`,
+            message_ar: `تمت الموافقة على طلب فتح الفرع لـ ${data.branch}`,
+            brand_id: data.brand,
+            role_target: ["Restaurants", "Manager", "Super Visor", "Area Manager"]
+          });
+          broadcast({ type: "BUSY_PERIOD_UPDATED" });
+        } else {
+          await db.query(`
+            INSERT INTO busy_period_records (
+              user_id, date, brand, branch, start_time, end_time, 
+              total_duration, total_duration_minutes, reason_category, responsible_party, 
+              comment, internal_notes
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+          `, [
+            request.user_id, data.date, data.brand, data.branch, data.start_time, data.end_time,
+            data.total_duration, data.total_duration_minutes || 0, data.reason_category, data.responsible_party,
+            data.comment, data.internal_notes
+          ]);
+          broadcast({
+            type: "NOTIFICATION",
+            notificationType: "BUSY_BRANCH",
+            title_en: "Request Approved",
+            title_ar: "تمت الموافقة على الطلب",
+            message_en: `Busy branch request approved`,
+            message_ar: `تمت الموافقة على طلب فرع مشغول`,
+            brand_id: data.brand,
+            branch_id: data.branch,
+            role_target: ["Restaurants", "Manager", "Super Visor", "Area Manager"]
+          });
+          broadcast({ type: "BUSY_PERIOD_CREATED" });
+        }
       }
       
       await db.query("UPDATE pending_requests SET status = 'Approved', processed_by = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2", [(req as any).user.id, id]);
@@ -1975,8 +2121,19 @@ async function startServer() {
     const user = (req as any).user;
     const restriction = await getBrandRestriction(user);
     
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 20;
+    const offset = (page - 1) * limit;
+    
+    const searchPhone = req.query.searchPhone as string;
+    const searchOrderId = req.query.searchOrderId as string;
+    const brandId = req.query.brandId as string;
+    const startDate = req.query.startDate as string;
+    const endDate = req.query.endDate as string;
+    const activeTab = req.query.activeTab as string;
+    const userId = req.query.userId as string;
+
     let query = `
-      SELECT lo.*, u.username as call_center_name, r.name as creator_role, b.name as brand_name, br.name as branch_name
       FROM late_order_requests lo
       JOIN users u ON lo.call_center_user_id = u.id
       JOIN roles r ON u.role_id = r.id
@@ -1984,57 +2141,112 @@ async function startServer() {
       JOIN branches br ON lo.branch_id = br.id
     `;
     const params: any[] = [];
+    const conditions: string[] = [];
 
+    // Role-based base conditions
     if (user.role_name === 'Call Center') {
       if (restriction) {
-        const placeholders = restriction.brands.map((_: any, i: number) => `$${i + 1}`).join(',');
-        query += ` WHERE (b.name ${restriction.type === 'include' ? 'IN' : 'NOT IN'} (${placeholders}))`;
+        const placeholders = restriction.brands.map((_: any, i: number) => `$${params.length + i + 1}`).join(',');
+        conditions.push(`b.name ${restriction.type === 'include' ? 'IN' : 'NOT IN'} (${placeholders})`);
         params.push(...restriction.brands);
       } else {
-        query += " WHERE (lo.call_center_user_id = $1 OR r.name = 'Restaurants')";
+        conditions.push(`(lo.call_center_user_id = $${params.length + 1} OR r.name = 'Restaurants')`);
         params.push(user.id);
       }
     } else if (user.role_name === 'Area Manager') {
       const branchIds = await getBranchRestriction(user);
       if (branchIds && branchIds.length > 0) {
-        const placeholders = branchIds.map((_, i) => `$${i + 1}`).join(',');
-        query += ` WHERE lo.branch_id IN (${placeholders})`;
+        const placeholders = branchIds.map((_, i) => `$${params.length + i + 1}`).join(',');
+        conditions.push(`lo.branch_id IN (${placeholders})`);
         params.push(...branchIds);
       } else {
-        query += " WHERE 1 = 0";
+        conditions.push("1 = 0");
       }
     } else if (user.role_name === 'Restaurants') {
-      const conditions = [];
       if (user.branch_id) {
-        conditions.push("lo.branch_id = $1");
+        conditions.push(`lo.branch_id = $${params.length + 1}`);
         params.push(user.branch_id);
       } else if (restriction) {
-        const placeholders = restriction.brands.map((_: any, i: number) => `$${i + 1}`).join(',');
+        const placeholders = restriction.brands.map((_: any, i: number) => `$${params.length + i + 1}`).join(',');
         conditions.push(`b.name ${restriction.type === 'include' ? 'IN' : 'NOT IN'} (${placeholders})`);
         params.push(...restriction.brands);
       } else {
         conditions.push("1 = 0");
       }
-      if (conditions.length > 0) {
-        query += " WHERE " + conditions.join(" AND ");
-      }
     } else if (user.role_name === 'Technical Back Office') {
-      query += " WHERE lo.case_type = 'Technical'";
+      conditions.push("lo.case_type = 'Technical'");
       if (restriction) {
-        const placeholders = restriction.brands.map((_: any, i: number) => `$${i + 1}`).join(',');
-        query += ` AND b.name ${restriction.type === 'include' ? 'IN' : 'NOT IN'} (${placeholders})`;
+        const placeholders = restriction.brands.map((_: any, i: number) => `$${params.length + i + 1}`).join(',');
+        conditions.push(`b.name ${restriction.type === 'include' ? 'IN' : 'NOT IN'} (${placeholders})`);
         params.push(...restriction.brands);
       }
     } else if (user.role_name === 'Manager' || user.role_name === 'Marketing Team' || user.role_name === 'Super Visor') {
       if (restriction) {
-        const placeholders = restriction.brands.map((_: any, i: number) => `$${i + 1}`).join(',');
-        query += ` WHERE b.name ${restriction.type === 'include' ? 'IN' : 'NOT IN'} (${placeholders})`;
+        const placeholders = restriction.brands.map((_: any, i: number) => `$${params.length + i + 1}`).join(',');
+        conditions.push(`b.name ${restriction.type === 'include' ? 'IN' : 'NOT IN'} (${placeholders})`);
         params.push(...restriction.brands);
       }
     }
 
-    query += " ORDER BY lo.created_at DESC";
-    const requests = await db.all(query, params) as any[];
+    // Additional filters from query params
+    if (searchPhone) {
+      conditions.push(`lo.customer_phone ILIKE $${params.length + 1}`);
+      params.push(`%${searchPhone}%`);
+    }
+    if (searchOrderId) {
+      conditions.push(`lo.order_id ILIKE $${params.length + 1}`);
+      params.push(`%${searchOrderId}%`);
+    }
+    if (brandId) {
+      conditions.push(`lo.brand_id = $${params.length + 1}`);
+      params.push(brandId);
+    }
+    if (startDate) {
+      conditions.push(`lo.created_at >= $${params.length + 1}`);
+      params.push(startDate + ' 00:00:00');
+    }
+    if (endDate) {
+      conditions.push(`lo.created_at <= $${params.length + 1}`);
+      params.push(endDate + ' 23:59:59');
+    }
+    if (userId) {
+      conditions.push(`lo.call_center_user_id = $${params.length + 1}`);
+      params.push(userId);
+    }
+
+    // Tab filtering logic
+    if (activeTab) {
+      if (user.role_name === 'Call Center' || user.role_name === 'Technical Back Office') {
+        if (activeTab === 'restaurant') {
+          conditions.push("r.name = 'Restaurants'");
+        } else {
+          conditions.push("r.name != 'Restaurants'");
+        }
+      } else if (user.role_name === 'Restaurants') {
+        if (activeTab === 'standard') {
+          conditions.push("r.name = 'Restaurants'");
+        } else {
+          conditions.push("r.name != 'Restaurants'");
+        }
+      }
+    }
+
+    const whereClause = conditions.length > 0 ? " WHERE " + conditions.join(" AND ") : "";
+    
+    // Get total count
+    const countResult = await db.get(`SELECT COUNT(*) as total ${query} ${whereClause}`, params);
+    const total = parseInt(countResult.total);
+    const totalPages = Math.ceil(total / limit);
+
+    // Get paginated data
+    const dataQuery = `
+      SELECT lo.*, u.username as call_center_name, r.name as creator_role, b.name as brand_name, br.name as branch_name
+      ${query}
+      ${whereClause}
+      ORDER BY lo.created_at DESC
+      LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+    `;
+    const requests = await db.all(dataQuery, [...params, limit, offset]) as any[];
 
     if (requests.length > 0) {
       const requestIds = requests.map(r => r.id);
@@ -2051,7 +2263,13 @@ async function startServer() {
       });
     }
 
-    res.json(requests);
+    res.json({
+      requests,
+      total,
+      totalPages,
+      page,
+      limit
+    });
   });
 
   app.put("/api/late-orders/:id", authenticate, authorize(["Restaurants", "Manager", "Super Visor", "Call Center", "Technical Back Office"]), async (req, res) => {
@@ -2865,14 +3083,34 @@ async function startServer() {
   });
 
   // Audit Logs
-  app.get("/api/audit-logs", authenticate, authorize(["Technical Back Office", "Manager", "Call Center", "Super Visor"]), async (req, res) => {
+  app.get("/api/audit-logs", authenticate, authorize(["Technical Back Office", "Manager", "Call Center", "Super Visor", "Restaurants", "Area Manager"]), async (req, res) => {
+    const restriction = await getBrandRestriction((req as any).user);
     const logs = await db.all(`
       SELECT a.*, u.username 
       FROM audit_logs a 
       LEFT JOIN users u ON a.user_id = u.id 
-      ORDER BY timestamp DESC LIMIT 100
+      ORDER BY timestamp DESC LIMIT 1000
     `);
-    res.json(logs);
+
+    let filteredLogs = logs;
+    if (restriction) {
+      filteredLogs = logs.filter(log => {
+        try {
+          const data = JSON.parse(log.new_value || log.old_value || '{}');
+          const brandName = data.brand_name || data.brand;
+          if (!brandName) return true; 
+          if (restriction.type === 'include') {
+            return restriction.brands.includes(brandName);
+          } else {
+            return !restriction.brands.includes(brandName);
+          }
+        } catch (e) {
+          return true;
+        }
+      });
+    }
+
+    res.json(filteredLogs.slice(0, 200));
   });
 
   // Busy Branch Records
@@ -2953,15 +3191,7 @@ async function startServer() {
         conditions.push("1 = 0");
       }
     } else if (user.role_name === 'Restaurants') {
-      if (user.branch_id) {
-        const branch = await db.get("SELECT name FROM branches WHERE id = $1", [user.branch_id]) as { name: string };
-        if (branch) {
-          conditions.push(`b.branch = $${params.length + 1}`);
-          params.push(branch.name);
-        } else {
-          conditions.push("1 = 0");
-        }
-      } else if (restriction) {
+      if (restriction) {
         const placeholders = restriction.brands.map((_, i) => `$${params.length + i + 1}`).join(',');
         if (restriction.type === 'include') {
           conditions.push(`b.brand IN (${placeholders})`);
@@ -2969,8 +3199,6 @@ async function startServer() {
           conditions.push(`b.brand NOT IN (${placeholders})`);
         }
         params.push(...restriction.brands);
-      } else {
-        conditions.push("1 = 0");
       }
     } else if (restriction) {
       const placeholders = restriction.brands.map((_, i) => `$${params.length + i + 1}`).join(',');
@@ -3109,19 +3337,27 @@ async function startServer() {
     }
   });
 
-  app.post("/api/hidden-items", authenticate, authorize(["Technical Back Office", "Manager", "Restaurants", "Super Visor"]), async (req, res) => {
+  app.post("/api/hidden-items", authenticate, authorize(["Technical Back Office", "Manager", "Restaurants", "Super Visor", "Area Manager"]), async (req, res) => {
     const { 
       brand_id, branch_id, product_ids, agent_name, reason, 
       action_to_unhide, comment, responsible_party 
     } = req.body;
     const requested_at = getCurrentKuwaitTime();
 
-    if ((req as any).user.role_name === 'Restaurants') {
+    if ((req as any).user.role_name === 'Restaurants' || (req as any).user.role_name === 'Area Manager') {
+      const productNameFieldId = await getProductNameFieldId();
+      const resolvedProducts = await db.all(`
+        SELECT p.id as product_id, fv.value as name
+        FROM products p
+        LEFT JOIN product_field_values fv ON p.id = fv.product_id AND fv.field_id = $1
+        WHERE p.id = ANY($2)
+      `, [productNameFieldId, product_ids]);
+
       const result = await db.query(`
         INSERT INTO pending_requests (user_id, type, data, created_at, updated_at)
         VALUES ($1, $2, $3, $4, $5)
         RETURNING id
-      `, [(req as any).user.id, 'hide_unhide', JSON.stringify({ ...req.body, requested_at }), getCurrentKuwaitTime(), getCurrentKuwaitTime()]);
+      `, [(req as any).user.id, 'hide_unhide', JSON.stringify({ ...req.body, action: 'HIDE', requested_at, resolved_products: resolvedProducts }), getCurrentKuwaitTime(), getCurrentKuwaitTime()]);
       
       broadcast({ type: "PENDING_REQUEST_CREATED" });
       return res.json({ id: result.rows[0].id, pending: true });
@@ -3294,8 +3530,9 @@ async function startServer() {
     res.send(buffer);
   });
 
-  app.get("/api/export-history", authenticate, authorize(["Technical Back Office", "Manager", "Call Center", "Super Visor"]), async (req, res) => {
+  app.get("/api/export-history", authenticate, authorize(["Technical Back Office", "Manager", "Call Center", "Super Visor", "Restaurants", "Area Manager"]), async (req, res) => {
     const { startDate, endDate, brandId, branchId } = req.query as any;
+    const restriction = await getBrandRestriction((req as any).user);
 
     const logs = await db.all(`
       SELECT l.*, u.username
@@ -3306,10 +3543,28 @@ async function startServer() {
       ORDER BY l.timestamp ASC
     `) as any[];
 
+    let filteredLogs = logs;
+    if (restriction) {
+      filteredLogs = logs.filter(log => {
+        try {
+          const data = JSON.parse(log.new_value || log.old_value || '{}');
+          const brandName = data.brand_name || data.brand;
+          if (!brandName) return true;
+          if (restriction.type === 'include') {
+            return restriction.brands.includes(brandName);
+          } else {
+            return !restriction.brands.includes(brandName);
+          }
+        } catch (e) {
+          return true;
+        }
+      });
+    }
+
     const sessions: any[] = [];
     const activeSessions: { [key: string]: any } = {};
 
-    logs.forEach(log => {
+    filteredLogs.forEach(log => {
       try {
         const data = JSON.parse(log.new_value || log.old_value || '{}');
         const productId = log.action === 'EDIT_HIDDEN_ITEM' ? data.product_id : log.target_id;
@@ -3523,7 +3778,40 @@ async function startServer() {
     res.send(buffer);
   });
 
-  app.delete("/api/hidden-items/:id", authenticate, authorize(["Technical Back Office", "Manager", "Super Visor"]), async (req, res) => {
+  app.delete("/api/hidden-items/:id", authenticate, authorize(["Technical Back Office", "Manager", "Super Visor", "Restaurants", "Area Manager"]), async (req, res) => {
+    if ((req as any).user.role_name === 'Restaurants' || (req as any).user.role_name === 'Area Manager') {
+      const productNameFieldId = await getProductNameFieldId();
+      const item = await db.get(`
+        SELECT hi.id as hidden_item_id, hi.product_id, fv.value as name
+        FROM hidden_items hi
+        LEFT JOIN product_field_values fv ON hi.product_id = fv.product_id AND fv.field_id = $1
+        WHERE hi.id = $2
+      `, [productNameFieldId, req.params.id]) as any;
+
+      if (!item) {
+        return res.status(404).json({ error: "Item not found" });
+      }
+
+      const result = await db.query(`
+        INSERT INTO pending_requests (user_id, type, data, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5)
+        RETURNING id
+      `, [
+        (req as any).user.id, 
+        'hide_unhide', 
+        JSON.stringify({ 
+          action: 'UNHIDE', 
+          ids: [req.params.id], 
+          resolved_products: [item] 
+        }), 
+        getCurrentKuwaitTime(), 
+        getCurrentKuwaitTime()
+      ]);
+      
+      broadcast({ type: "PENDING_REQUEST_CREATED" });
+      return res.json({ id: result.rows[0].id, pending: true });
+    }
+
     const item = await db.get(`
       SELECT hi.*, fv.value as product_name, br.name as branch_name, b.name as brand_name
       FROM hidden_items hi
@@ -3559,10 +3847,39 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  app.post("/api/hidden-items/bulk-unhide", authenticate, authorize(["Technical Back Office", "Manager", "Super Visor"]), async (req, res) => {
+  app.post("/api/hidden-items/bulk-unhide", authenticate, authorize(["Technical Back Office", "Manager", "Super Visor", "Restaurants", "Area Manager"]), async (req, res) => {
     const { ids } = req.body;
     if (!Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({ error: "Invalid IDs" });
+    }
+
+    if ((req as any).user.role_name === 'Restaurants' || (req as any).user.role_name === 'Area Manager') {
+      const productNameFieldId = await getProductNameFieldId();
+      const resolvedProducts = await db.all(`
+        SELECT hi.id as hidden_item_id, hi.product_id, fv.value as name
+        FROM hidden_items hi
+        LEFT JOIN product_field_values fv ON hi.product_id = fv.product_id AND fv.field_id = $1
+        WHERE hi.id IN (${ids.map((_, i) => `$${i + 2}`).join(',')})
+      `, [productNameFieldId, ...ids]);
+
+      const result = await db.query(`
+        INSERT INTO pending_requests (user_id, type, data, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5)
+        RETURNING id
+      `, [
+        (req as any).user.id, 
+        'hide_unhide', 
+        JSON.stringify({ 
+          action: 'UNHIDE', 
+          ids, 
+          resolved_products: resolvedProducts 
+        }), 
+        getCurrentKuwaitTime(), 
+        getCurrentKuwaitTime()
+      ]);
+      
+      broadcast({ type: "PENDING_REQUEST_CREATED" });
+      return res.json({ id: result.rows[0].id, pending: true });
     }
 
     await db.transaction(async (client) => {
@@ -3672,9 +3989,30 @@ async function startServer() {
   app.put("/api/busy-periods/:id", authenticate, async (req, res) => {
     const { id } = req.params;
     let { action, end_time, total_duration, total_duration_minutes } = req.body;
+    const user = (req as any).user;
     
     const record = await db.get("SELECT * FROM busy_period_records WHERE id = $1", [id]) as any;
     if (!record) return res.status(404).json({ error: "Record not found" });
+
+    if (user.role_name === 'Restaurants' && action === 'OPEN') {
+      await db.query(`
+        INSERT INTO pending_requests (user_id, type, data, status)
+        VALUES ($1, $2, $3, $4)
+      `, [user.id, 'busy_branch', JSON.stringify({ ...record, action: 'OPEN' }), 'Pending']);
+      
+      broadcast({
+        type: "NOTIFICATION",
+        notificationType: "NEW_REQUEST",
+        title_en: "New Open Branch Request",
+        title_ar: "طلب فتح فرع جديد",
+        message_en: `New open branch request from ${user.username}`,
+        message_ar: `طلب فتح فرع جديد من ${user.username}`,
+        role_target: ["Technical Back Office", "Manager", "Super Visor"]
+      });
+      
+      broadcast({ type: "PENDING_REQUEST_UPDATED" });
+      return res.json({ success: true, pending: true });
+    }
 
     if (action === 'OPEN' || !end_time) {
       const now = new Date();
