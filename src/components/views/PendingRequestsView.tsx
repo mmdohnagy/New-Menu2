@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { API_URL, cn, formatDate, safeJson } from '../../lib/utils';
-import { CheckCircle2, XCircle, Clock, User, AlertCircle, Eye, Check, X, Loader2, Download } from 'lucide-react';
+import { CheckCircle2, XCircle, Clock, User, AlertCircle, Eye, Check, X, Loader2, Download, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { PendingRequest } from '../../types';
 import * as XLSX from 'xlsx';
@@ -17,11 +17,14 @@ export default function PendingRequestsView({ filterType }: PendingRequestsViewP
   const { fetchWithAuth } = useFetch();
   const [requests, setRequests] = useState<PendingRequest[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [processingId, setProcessingId] = useState<number | null>(null);
   const [selectedRequest, setSelectedRequest] = useState<PendingRequest | null>(null);
   const [viewMode, setViewMode] = useState<'pending' | 'history'>('pending');
 
   const fetchRequests = async () => {
+    setLoading(true);
+    setError(null);
     try {
       const res = await fetchWithAuth(`${API_URL}/pending-requests`);
       if (res.ok) {
@@ -31,10 +34,14 @@ export default function PendingRequestsView({ filterType }: PendingRequestsViewP
           filteredData = filteredData.filter(r => r.type === filterType);
         }
         setRequests(filteredData);
+      } else {
+        const errorData = await safeJson(res);
+        throw new Error(errorData?.error || `Failed to fetch requests: ${res.status}`);
       }
     } catch (error: any) {
       if (error.isAuthError) return;
       console.error("Error fetching requests:", error);
+      setError(error.message || 'An unexpected error occurred while fetching requests.');
     } finally {
       setLoading(false);
     }
@@ -138,6 +145,31 @@ export default function PendingRequestsView({ filterType }: PendingRequestsViewP
     );
   }
 
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 space-y-6">
+        <div className="w-20 h-20 bg-red-50 dark:bg-red-900/20 rounded-3xl flex items-center justify-center text-red-500 shadow-xl shadow-red-500/10">
+          <AlertCircle size={40} />
+        </div>
+        <div className="text-center space-y-2">
+          <h3 className="text-2xl font-black text-zinc-900 dark:text-white tracking-tight">
+            {lang === 'ar' ? 'خطأ في تحميل البيانات' : 'Error Loading Data'}
+          </h3>
+          <p className="text-zinc-500 dark:text-zinc-400 font-medium max-w-md mx-auto">
+            {error}
+          </p>
+        </div>
+        <button
+          onClick={() => fetchRequests()}
+          className="px-8 py-4 bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 rounded-2xl font-black shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center gap-3"
+        >
+          <RefreshCw size={20} />
+          {lang === 'ar' ? 'إعادة المحاولة' : 'Retry Connection'}
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -216,7 +248,15 @@ export default function PendingRequestsView({ filterType }: PendingRequestsViewP
                   <div>
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-xs font-black uppercase tracking-widest text-zinc-400">
-                        {request.type === 'hide_unhide' ? (lang === 'en' ? 'Hide Request' : 'طلب إخفاء') : (lang === 'en' ? 'Busy Branch Request' : 'طلب فرع مزدحم')}
+                        {request.type === 'hide_unhide' ? (
+                          request.data.action === 'UNHIDE' 
+                            ? (lang === 'en' ? 'Unhide Request' : 'طلب إظهار')
+                            : (lang === 'en' ? 'Hide Request' : 'طلب إخفاء')
+                        ) : (
+                          request.data.action === 'OPEN'
+                            ? (lang === 'en' ? 'Open Branch Request' : 'طلب فتح فرع')
+                            : (lang === 'en' ? 'Busy Branch Request' : 'طلب فرع مزدحم')
+                        )}
                       </span>
                       <div className="w-1 h-1 rounded-full bg-zinc-300" />
                       <span className="text-xs font-bold text-zinc-500">{formatDate(request.created_at)}</span>
