@@ -42,6 +42,7 @@ export default function UnhideItemView() {
   const [allBrands, setAllBrands] = useState<{ id: number; name: string }[]>([]);
   const [allBranches, setAllBranches] = useState<{ id: number; brand_id: number; name: string }[]>([]);
   const [allProducts, setAllProducts] = useState<{ id: number; brand_id: number; product_name: string }[]>([]);
+  const [fields, setFields] = useState<any[]>([]);
   const [responsibleParties, setResponsibleParties] = useState<{ id: number; name: string }[]>([]);
   const [editForm, setEditForm] = useState({
     brand_id: 0,
@@ -89,11 +90,16 @@ export default function UnhideItemView() {
 
   const fetchInitialData = async () => {
     try {
-      const [brandsRes, respRes, branchesRes] = await Promise.all([
+      const [brandsRes, respRes, branchesRes, fieldsRes] = await Promise.all([
         fetchWithAuth(`${API_URL}/brands`),
         fetchWithAuth(`${API_URL}/busy-responsible`),
-        fetchWithAuth(`${API_URL}/branches`)
+        fetchWithAuth(`${API_URL}/branches`),
+        fetchWithAuth(`${API_URL}/fields`)
       ]);
+      if (fieldsRes.ok) {
+        const fieldsData = await safeJson(fieldsRes);
+        setFields(fieldsData.fields || []);
+      }
       if (brandsRes.ok) {
         const brandsData = await safeJson(brandsRes) || [];
         setAllBrands(brandsData);
@@ -122,12 +128,12 @@ export default function UnhideItemView() {
 
   const fetchProductsForBrand = async (brandId: number) => {
     try {
-      const res = await fetchWithAuth(`${API_URL}/products?brand_id=${brandId}`);
+      const res = await fetchWithAuth(`${API_URL}/products?brand_id=${brandId}&limit=1000`);
       if (res.ok) {
         const data = await safeJson(res);
         if (data && Array.isArray(data.products)) {
           // Map product names from fieldValues if needed
-          const productNameFieldId = 3; // Default from server.ts
+          const productNameFieldId = (Array.isArray(fields) ? fields : []).find(f => f.name_en === 'Product Name (EN)')?.id || 3;
           const mappedProducts = data.products.map((p: any) => {
             const nameValue = data.fieldValues?.find((fv: any) => fv.product_id === p.id && fv.field_id === productNameFieldId);
             return { 
