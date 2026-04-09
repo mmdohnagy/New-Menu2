@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { API_URL, cn, formatDate, safeJson } from '../../lib/utils';
-import { Search, Filter, Calendar, Clock, Download, Eye, X, Edit2, Check, Loader2, ChevronDown, User, MessageCircle } from 'lucide-react';
+import { Search, Filter, Calendar, Clock, Download, Eye, X, Edit2, Check, Loader2, ChevronDown, User, MessageCircle, AlertCircle, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { BusyPeriodRecord } from '../../types';
 import { useWebSocket } from '../../hooks/useWebSocket';
@@ -19,6 +19,7 @@ export default function BusyPeriodsDatabaseView() {
   const [editingRecord, setEditingRecord] = useState<BusyPeriodRecord | null>(null);
   const [editEndTime, setEditEndTime] = useState('');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [updating, setUpdating] = useState(false);
 
   const lastMessage = useWebSocket();
@@ -45,6 +46,7 @@ export default function BusyPeriodsDatabaseView() {
 
   const fetchData = async () => {
     setLoading(true);
+    setError(null);
     try {
       const res = await fetchWithAuth(`${API_URL}/busy-periods`);
       if (!res.ok) {
@@ -62,6 +64,7 @@ export default function BusyPeriodsDatabaseView() {
     } catch (err: any) {
       if (err.isAuthError) return;
       console.error("Failed to fetch busy periods", err);
+      setError(err.message || 'An unexpected error occurred while fetching busy periods.');
     } finally {
       setLoading(false);
     }
@@ -106,7 +109,12 @@ export default function BusyPeriodsDatabaseView() {
       });
       
       if (res.ok) {
-        fetchData();
+        const data = await safeJson(res);
+        if (data.pending) {
+          alert(lang === 'en' ? 'Open request sent for approval' : 'تم إرسال طلب الفتح للموافقة');
+        } else {
+          fetchData();
+        }
       }
     } catch (err: any) {
       if (err.isAuthError) return;
@@ -375,7 +383,7 @@ export default function BusyPeriodsDatabaseView() {
                     </td>
                     <td className="px-8 py-6 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        {!record.end_time && user?.role_name !== 'Call Center' && (
+                        {!record.end_time && user?.role_name !== 'Call Center' && (user?.role_name !== 'Restaurants' || record.branch === (user as any).branch_name) && (
                           <button
                             onClick={() => handleOpen(record)}
                             disabled={updating}
@@ -392,7 +400,7 @@ export default function BusyPeriodsDatabaseView() {
                         >
                           <MessageCircle size={18} />
                         </button>
-                        {user?.role_name !== 'Call Center' && (
+                        {user?.role_name !== 'Call Center' && user?.role_name !== 'Restaurants' && (
                           <button
                             onClick={() => {
                               setEditingRecord(record);
