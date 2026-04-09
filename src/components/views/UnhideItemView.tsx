@@ -98,7 +98,9 @@ export default function UnhideItemView() {
       ]);
       if (fieldsRes.ok) {
         const fieldsData = await safeJson(fieldsRes);
-        setFields(fieldsData.fields || []);
+        if (fieldsData) {
+          setFields(fieldsData.fields || []);
+        }
       }
       if (brandsRes.ok) {
         const brandsData = await safeJson(brandsRes) || [];
@@ -171,9 +173,14 @@ export default function UnhideItemView() {
       });
       
       if (res.ok) {
+        const data = await safeJson(res);
         setSelectedIds([]);
         await fetchData();
-        alert("Items unhidden successfully!");
+        if (data?.pending) {
+          alert(lang === 'en' ? "Request sent for approval" : "تم إرسال الطلب للموافقة");
+        } else {
+          alert(lang === 'en' ? "Items unhidden successfully!" : "تم إظهار العناصر بنجاح!");
+        }
       } else {
         const errorData = await safeJson(res);
         alert(`Error: ${errorData?.error || 'Failed to unhide items'}`);
