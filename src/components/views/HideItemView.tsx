@@ -113,7 +113,7 @@ export default function HideItemView() {
     try {
       const [branchesRes, productsRes] = await Promise.all([
         fetchWithAuth(`${API_URL}/branches`),
-        fetchWithAuth(`${API_URL}/products?brand_id=${selectedBrand}`)
+        fetchWithAuth(`${API_URL}/products?brand_id=${selectedBrand}&limit=1000`)
       ]);
       if (branchesRes.ok) {
         const allBranches = await branchesRes.json();
@@ -259,24 +259,18 @@ export default function HideItemView() {
     const matchesSearch = p.product_name.toLowerCase().includes(searchQuery.toLowerCase()) || 
                          (p.ingredients && p.ingredients.toLowerCase().includes(searchQuery.toLowerCase()));
     
-    // Filter out products that are already hidden for the selected branch
-    const brandHiddenRecords = hiddenItems.filter(h => h.brand_id === Number(selectedBrand) && h.product_id === p.id);
-    
-    const isHidden = (() => {
-      // If hidden globally (branch_id is null)
-      if (brandHiddenRecords.some(h => h.branch_id === null)) return true;
-
-      if (selectedBranch === 'all') {
-        // Hidden in "All Branches" view only if hidden in every single branch
-        return branches.length > 0 && brandHiddenRecords.length >= branches.length;
-      } else {
-        // Hidden in specific branch if there's a record for that branch
-        return brandHiddenRecords.some(h => h.branch_id === Number(selectedBranch));
-      }
-    })();
-
-    return matchesSearch && !isHidden;
+    return matchesSearch;
   });
+
+  const getHiddenStatus = (productId: number) => {
+    const brandHiddenRecords = hiddenItems.filter(h => h.brand_id === Number(selectedBrand) && h.product_id === productId);
+    
+    if (brandHiddenRecords.some(h => h.branch_id === null)) return 'Global';
+    if (selectedBranch !== 'all' && brandHiddenRecords.some(h => h.branch_id === Number(selectedBranch))) return 'Branch';
+    if (selectedBranch === 'all' && branches.length > 0 && brandHiddenRecords.length >= branches.length) return 'All Branches';
+    
+    return null;
+  };
 
   const highlightText = (text: string, query: string) => {
     if (!query) return text;
@@ -432,12 +426,24 @@ export default function HideItemView() {
                           )}
                         >
                           <div className="flex flex-col items-start gap-1">
-                            <span className={cn(
-                              "text-sm font-bold transition-colors",
-                              p.is_offline ? "text-zinc-400" : selectedProductIds.includes(p.id) ? "text-white dark:text-zinc-900" : "text-zinc-700 dark:text-zinc-300"
-                            )}>
-                              {highlightText(p.product_name, searchQuery)}
-                            </span>
+                            <div className="flex items-center gap-2">
+                              <span className={cn(
+                                "text-sm font-bold transition-colors",
+                                p.is_offline ? "text-zinc-400" : selectedProductIds.includes(p.id) ? "text-white dark:text-zinc-900" : "text-zinc-700 dark:text-zinc-300"
+                              )}>
+                                {highlightText(p.product_name, searchQuery)}
+                              </span>
+                              {getHiddenStatus(p.id) && (
+                                <span className={cn(
+                                  "px-1.5 py-0.5 rounded-md text-[8px] font-black uppercase tracking-wider",
+                                  selectedProductIds.includes(p.id) 
+                                    ? "bg-white/20 text-white dark:text-zinc-900" 
+                                    : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400"
+                                )}>
+                                  Hidden ({getHiddenStatus(p.id)})
+                                </span>
+                              )}
+                            </div>
                             {p.ingredients && (
                               <div className="flex items-center gap-1.5">
                                 <span className={cn(
